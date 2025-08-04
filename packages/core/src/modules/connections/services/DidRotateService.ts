@@ -27,6 +27,7 @@ import { ConnectionMetadataKeys } from '../repository/ConnectionMetadataTypes'
 
 import { ConnectionService } from './ConnectionService'
 import { createPeerDidFromServices, getDidDocumentForCreatedDid, routingToServices } from './helpers'
+import { DidExchangeState } from '../models'
 
 @injectable()
 export class DidRotateService {
@@ -105,6 +106,7 @@ export class DidRotateService {
     }
 
     connection.did = undefined
+    connection.state = DidExchangeState.Abandoned
 
     await agentContext.dependencyManager.resolve(ConnectionService).update(agentContext, connection)
 
@@ -129,6 +131,7 @@ export class DidRotateService {
     }
 
     connection.theirDid = undefined
+    connection.state = DidExchangeState.Abandoned
 
     await agentContext.dependencyManager.resolve(ConnectionService).update(agentContext, connection)
   }
