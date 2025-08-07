@@ -3,6 +3,7 @@
   "compilerOptions": {
     "allowJs": false,
     "typeRoots": ["../../node_modules/@types", "src/types"],
-    "types": ["jest"]
+    "types": ["jest"],
+    "isolatedModules": true
   }
 }
