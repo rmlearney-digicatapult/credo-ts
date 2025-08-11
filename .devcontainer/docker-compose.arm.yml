@@ -31,7 +31,6 @@ services:
     build:
       context: ../.
       dockerfile: network/indy-pool-arm.dockerfile
-    platform: linux/arm64/v8
     ports:
       - '9701-9708:9701-9708'
     # Start supervisord in bg, run commands, bring supervisor to fg
