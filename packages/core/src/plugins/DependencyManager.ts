@@ -2,15 +2,14 @@ import type { ModulesMap } from '../agent/AgentModules'
 import type { MessageHandler } from '../agent/MessageHandler'
 import type { MessageHandlerMiddleware } from '../agent/MessageHandlerMiddleware'
 import type { Constructor } from '../utils/mixins'
-import type { DependencyContainer } from 'tsyringe'
 
-import { container as rootContainer, InjectionToken, Lifecycle } from 'tsyringe'
+import { container as rootContainer, type DependencyContainer, type InjectionToken, Lifecycle } from 'tsyringe'
 
 import { FeatureRegistry } from '../agent/FeatureRegistry'
 import { MessageHandlerRegistry } from '../agent/MessageHandlerRegistry'
 import { CredoError } from '../error'
 
-export { InjectionToken }
+export type { InjectionToken }
 
 export class DependencyManager {
   public readonly container: DependencyContainer

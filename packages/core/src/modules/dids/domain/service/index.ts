@@ -4,11 +4,11 @@ import { IndyAgentService } from './IndyAgentService'
 import {
   NewDidCommV2Service,
   NewDidCommV2ServiceEndpoint,
-  NewDidCommV2ServiceEndpointOptions,
+  type NewDidCommV2ServiceEndpointOptions,
 } from './NewDidCommV2Service'
 import { ServiceTransformer, serviceTypes } from './ServiceTransformer'
 
-export { DidCommV2ServiceOptions, DidCommV2Service } from './DidCommV2Service'
+export { type DidCommV2ServiceOptions, DidCommV2Service } from './DidCommV2Service'
 
 export {
   IndyAgentService,
@@ -18,5 +18,5 @@ export {
   serviceTypes,
   NewDidCommV2Service,
   NewDidCommV2ServiceEndpoint,
-  NewDidCommV2ServiceEndpointOptions,
+  type NewDidCommV2ServiceEndpointOptions,
 }

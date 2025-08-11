@@ -1,1 +1,4 @@
-export { V2CredentialProblemReportError, V2CredentialProblemReportErrorOptions } from './V2CredentialProblemReportError'
+export {
+  V2CredentialProblemReportError,
+  type V2CredentialProblemReportErrorOptions,
+} from './V2CredentialProblemReportError'

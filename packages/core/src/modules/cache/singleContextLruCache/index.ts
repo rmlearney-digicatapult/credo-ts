@@ -1,1 +1,1 @@
-export { SingleContextStorageLruCache, SingleContextStorageLruCacheOptions } from './SingleContextStorageLruCache'
+export { SingleContextStorageLruCache, type SingleContextStorageLruCacheOptions } from './SingleContextStorageLruCache'
