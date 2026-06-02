@@ -20,6 +20,7 @@ import type {
   W3cV2VerifyCredentialResult,
   W3cV2VerifyPresentationResult,
 } from '../models'
+import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import {
   extractHolderFromPresentationCredentials,
   getVerificationMethodForJwt,
@@ -32,7 +33,6 @@ import type {
   W3cV2SdJwtVerifyCredentialOptions,
   W3cV2SdJwtVerifyPresentationOptions,
 } from '../W3cV2CredentialServiceOptions'
-import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import { sdJwtVcHasher } from './W3cV2SdJwt'
 import { W3cV2SdJwtVerifiableCredential } from './W3cV2SdJwtVerifiableCredential'
 import { W3cV2SdJwtVerifiablePresentation } from './W3cV2SdJwtVerifiablePresentation'

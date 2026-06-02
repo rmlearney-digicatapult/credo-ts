@@ -7,6 +7,7 @@ import { asArray, JsonTransformer, MessageValidator, nowInSeconds } from '../../
 import { getPublicJwkFromVerificationMethod } from '../../dids/domain/key-type/keyDidMapping'
 import { extractKeyFromHolderBinding } from '../../sd-jwt-vc/utils'
 import type { SingleValidationResult, W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models'
+import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import {
   extractHolderFromPresentationCredentials,
   getVerificationMethodForJwt,
@@ -18,7 +19,6 @@ import type {
   W3cV2JwtVerifyCredentialOptions,
   W3cV2JwtVerifyPresentationOptions,
 } from '../W3cV2CredentialServiceOptions'
-import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import { W3cV2JwtVerifiableCredential } from './W3cV2JwtVerifiableCredential'
 import { W3cV2JwtVerifiablePresentation } from './W3cV2JwtVerifiablePresentation'
 
