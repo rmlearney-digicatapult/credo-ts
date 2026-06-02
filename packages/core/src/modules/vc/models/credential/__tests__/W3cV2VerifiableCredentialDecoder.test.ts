@@ -1,4 +1,6 @@
 import { CredoError } from '../../../../../error'
+import { JsonEncoder } from '../../../../../utils/JsonEncoder'
+import { TypedArrayEncoder } from '../../../../../utils/TypedArrayEncoder'
 import { W3cV2DataIntegrityVerifiableCredential } from '../../../data-integrity-v1'
 import { W3cV2JwtVerifiableCredential } from '../../../jwt-vc'
 import { W3cV2SdJwtVerifiableCredential } from '../../../sd-jwt-vc'
@@ -52,9 +54,9 @@ describe('decodeW3cV2VerifiableCredential', () => {
 })
 
 function toCompactHeader(header: Record<string, unknown>) {
-  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url')
-  const encodedPayload = Buffer.from(JSON.stringify({ iss: 'did:example:issuer' })).toString('base64url')
-  const encodedSignature = Buffer.from('signature').toString('base64url')
+  const encodedHeader = JsonEncoder.toBase64Url(header)
+  const encodedPayload = JsonEncoder.toBase64Url({ iss: 'did:example:issuer' })
+  const encodedSignature = TypedArrayEncoder.toBase64Url(TypedArrayEncoder.fromUtf8String('signature'))
 
   return `${encodedHeader}.${encodedPayload}.${encodedSignature}`
 }
