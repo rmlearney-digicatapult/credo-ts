@@ -19,6 +19,7 @@ import {
   extractX509CertificatesFromJwt,
   JsonTransformer,
   Kms,
+  SdJwtVcApi,
   TypedArrayEncoder,
   W3cCredentialService,
   W3cJsonLdVerifiablePresentation,

@@ -223,8 +223,12 @@ export class W3cV2CredentialService {
       }
     }
 
-    if (!candidate.resolvedPresentation?.verifiableCredential) return undefined
-    return candidate.resolvedPresentation
+    const resolvedPresentation = candidate.resolvedPresentation
+    if (!resolvedPresentation?.verifiableCredential) return undefined
+
+    return {
+      verifiableCredential: resolvedPresentation.verifiableCredential,
+    }
   }
 
   private registerVpEntryRoutingHookStub(_options: {
