@@ -40,7 +40,10 @@ export class W3cV2Presentation {
       this.context = options.context ?? [CREDENTIALS_CONTEXT_V2_URL]
       this.type = options.type ?? [VERIFIABLE_PRESENTATION_TYPE]
       this.verifiableCredential = mapSingleOrArray(options.verifiableCredential, (entry) => {
-        if (entry instanceof W3cV2EnvelopedVerifiableCredential || entry instanceof W3cV2DataIntegrityVerifiableCredential) {
+        if (
+          entry instanceof W3cV2EnvelopedVerifiableCredential ||
+          entry instanceof W3cV2DataIntegrityVerifiableCredential
+        ) {
           return entry
         }
 
@@ -106,10 +109,7 @@ function isEmbeddedDataIntegrityCredential(
 }
 
 function jsonToCredentialEntry(value: unknown): W3cV2PresentationCredentialEntry {
-  if (
-    value instanceof W3cV2EnvelopedVerifiableCredential ||
-    value instanceof W3cV2DataIntegrityVerifiableCredential
-  ) {
+  if (value instanceof W3cV2EnvelopedVerifiableCredential || value instanceof W3cV2DataIntegrityVerifiableCredential) {
     return value
   }
 

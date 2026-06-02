@@ -22,9 +22,11 @@ export const decodeW3cV2VerifiableCredential = (v: unknown) => {
     try {
       const parsedJson = JSON.parse(trimmedValue)
       if (parsedJson && typeof parsedJson === 'object' && !Array.isArray(parsedJson)) {
-        return W3cV2DataIntegrityVerifiableCredential.fromObject(parsedJson as Record<string, unknown> & {
-          proof: unknown
-        })
+        return W3cV2DataIntegrityVerifiableCredential.fromObject(
+          parsedJson as Record<string, unknown> & {
+            proof: unknown
+          }
+        )
       }
     } catch {
       // Not JSON; continue with compact encodings.
@@ -80,9 +82,7 @@ const encodeCredential = (v: unknown) => {
 export function W3cV2VerifiableCredentialTransformer() {
   return Transform(({ value, type }: { value: SingleOrArray<unknown>; type: TransformationType }) => {
     if (type === TransformationType.PLAIN_TO_CLASS) {
-      return Array.isArray(value)
-        ? value.map(decodeW3cV2VerifiableCredential)
-        : decodeW3cV2VerifiableCredential(value)
+      return Array.isArray(value) ? value.map(decodeW3cV2VerifiableCredential) : decodeW3cV2VerifiableCredential(value)
     }
 
     if (type === TransformationType.CLASS_TO_PLAIN) {
