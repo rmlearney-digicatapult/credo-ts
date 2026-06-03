@@ -131,22 +131,19 @@ export class W3cV2CredentialService {
     options: W3cV2VerifyPresentationOptions
   ): Promise<W3cV2VerifyPresentationResult> {
     if (options.presentation instanceof W3cV2JwtVerifiablePresentation) {
-      this.preparePresentationEntryRoutingStub(options.presentation, ClaimFormat.JwtW3cVp)
-      return this.w3cV2JwtCredentialService.verifyPresentation(
+      return await this.w3cV2JwtCredentialService.verifyPresentation(
         agentContext,
         options as W3cV2JwtVerifyPresentationOptions
       )
     }
     if (options.presentation instanceof W3cV2SdJwtVerifiablePresentation) {
-      this.preparePresentationEntryRoutingStub(options.presentation, ClaimFormat.SdJwtW3cVp)
-      return this.w3cV2SdJwtCredentialService.verifyPresentation(
+      return await this.w3cV2SdJwtCredentialService.verifyPresentation(
         agentContext,
         options as W3cV2SdJwtVerifyPresentationOptions
       )
     }
 
     if (this.getClaimFormat(options.presentation) === ClaimFormat.DiVp) {
-      this.preparePresentationEntryRoutingStub(options.presentation, ClaimFormat.DiVp)
       this.throwDataIntegrityStubError(
         'verifyPresentation',
         ClaimFormat.DiVp,
@@ -188,56 +185,6 @@ export class W3cV2CredentialService {
 
     const candidate = value as { claimFormat?: unknown }
     return typeof candidate.claimFormat === 'string' ? candidate.claimFormat : undefined
-  }
-
-  private preparePresentationEntryRoutingStub(
-    presentation: unknown,
-    outerClaimFormat: ClaimFormat.JwtW3cVp | ClaimFormat.SdJwtW3cVp | ClaimFormat.DiVp
-  ) {
-    const resolvedPresentation = this.getResolvedPresentationForRoutingStub(presentation)
-    if (!resolvedPresentation) return
-
-    const entries = Array.isArray(resolvedPresentation.verifiableCredential)
-      ? resolvedPresentation.verifiableCredential
-      : [resolvedPresentation.verifiableCredential]
-
-    entries.forEach((entry, entryIndex) => {
-      this.registerVpEntryRoutingHookStub({
-        outerClaimFormat,
-        entryClaimFormat: this.getClaimFormat(entry),
-        entryIndex,
-      })
-    })
-  }
-
-  private getResolvedPresentationForRoutingStub(value: unknown):
-    | {
-        verifiableCredential: unknown | unknown[]
-      }
-    | undefined {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-
-    const candidate = value as {
-      resolvedPresentation?: {
-        verifiableCredential?: unknown | unknown[]
-      }
-    }
-
-    const resolvedPresentation = candidate.resolvedPresentation
-    if (!resolvedPresentation?.verifiableCredential) return undefined
-
-    return {
-      verifiableCredential: resolvedPresentation.verifiableCredential,
-    }
-  }
-
-  private registerVpEntryRoutingHookStub(_options: {
-    outerClaimFormat: ClaimFormat.JwtW3cVp | ClaimFormat.SdJwtW3cVp | ClaimFormat.DiVp
-    entryClaimFormat?: string
-    entryIndex: number
-  }) {
-    // TODO: In the DI port branch, route VP credential entries by entry claim format and shape.
-    // TODO: Keep VP-level validations separate from per-entry VC validation aggregation.
   }
 
   /**

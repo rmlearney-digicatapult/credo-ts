@@ -255,7 +255,11 @@ export class W3cV2SdJwtCredentialService {
   ): Promise<W3cV2VerifyPresentationResult> {
     const validationResults: W3cV2VerifyPresentationResult = {
       isValid: false,
-      validations: {},
+      presentation: {
+        isValid: false,
+        validations: {},
+      },
+      credentialEntries: [],
     }
 
     const sdjwt = new SDJwtInstance({
@@ -280,11 +284,11 @@ export class W3cV2SdJwtCredentialService {
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
 
-        validationResults.validations.dataModel = {
+        validationResults.presentation.validations.dataModel = {
           isValid: true,
         }
       } catch (error) {
-        validationResults.validations.dataModel = {
+        validationResults.presentation.validations.dataModel = {
           isValid: false,
           error,
         }
@@ -307,11 +311,11 @@ export class W3cV2SdJwtCredentialService {
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
 
-        validationResults.validations.presentationSignature = {
+        validationResults.presentation.validations.presentationSignature = {
           isValid: true,
         }
       } catch (error) {
-        validationResults.validations.presentationSignature = {
+        validationResults.presentation.validations.presentationSignature = {
           isValid: false,
           error,
         }
@@ -323,7 +327,7 @@ export class W3cV2SdJwtCredentialService {
         presentation.resolvedPresentation.holderId &&
         proverVerificationMethod.controller !== presentation.resolvedPresentation.holderId
       ) {
-        validationResults.validations.holderIsSigner = {
+        validationResults.presentation.validations.holderIsSigner = {
           isValid: false,
           error: new CredoError(
             `Presentation is signed using verification method ${proverVerificationMethod.id}, while the holder of the presentation is '${presentation.resolvedPresentation.holderId}'`
@@ -332,7 +336,7 @@ export class W3cV2SdJwtCredentialService {
       } else {
         // If no holderId is present, this validation passes by default as there can't be
         // a mismatch between the 'holder' property and the signer of the presentation.
-        validationResults.validations.holderIsSigner = {
+        validationResults.presentation.validations.holderIsSigner = {
           isValid: true,
         }
       }
@@ -341,7 +345,7 @@ export class W3cV2SdJwtCredentialService {
       const credentials = asArray(presentation.resolvedPresentation.verifiableCredential)
 
       // Verify all credentials in parallel, and await the result
-      validationResults.validations.credentials = await Promise.all(
+      validationResults.credentialEntries = await Promise.all(
         credentials.map(async (credential) => {
           if (
             !(credential instanceof W3cV2EnvelopedVerifiableCredential) ||
@@ -398,10 +402,11 @@ export class W3cV2SdJwtCredentialService {
         })
       )
 
-      // Deeply nested check whether all validations have passed
-      validationResults.isValid = Object.values(validationResults.validations).every((v) =>
-        Array.isArray(v) ? v.every((vv) => vv.isValid) : v.isValid
+      validationResults.presentation.isValid = Object.values(validationResults.presentation.validations).every(
+        (validation) => validation.isValid
       )
+      validationResults.isValid =
+        validationResults.presentation.isValid && validationResults.credentialEntries.every((entry) => entry.isValid)
 
       return validationResults
     } catch (error) {

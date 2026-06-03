@@ -514,36 +514,39 @@ describe('W3cV2JwtCredentialService', () => {
 
       expect(result).toEqual({
         isValid: true,
-        validations: {
-          dataModel: {
-            isValid: true,
-          },
-          presentationSignature: {
-            isValid: true,
-          },
-          holderIsSigner: {
-            isValid: true,
-          },
-          credentials: [
-            {
+        presentation: {
+          isValid: true,
+          validations: {
+            dataModel: {
               isValid: true,
-              validations: {
-                dataModel: {
-                  isValid: true,
-                },
-                signature: {
-                  isValid: true,
-                },
-                issuerIsSigner: {
-                  isValid: true,
-                },
-                credentialSubjectAuthentication: {
-                  isValid: true,
-                },
+            },
+            presentationSignature: {
+              isValid: true,
+            },
+            holderIsSigner: {
+              isValid: true,
+            },
+          },
+        },
+        credentialEntries: [
+          {
+            isValid: true,
+            validations: {
+              dataModel: {
+                isValid: true,
+              },
+              signature: {
+                isValid: true,
+              },
+              issuerIsSigner: {
+                isValid: true,
+              },
+              credentialSubjectAuthentication: {
+                isValid: true,
               },
             },
-          ],
-        },
+          },
+        ],
       })
     })
   })

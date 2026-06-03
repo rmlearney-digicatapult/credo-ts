@@ -245,7 +245,11 @@ export class W3cV2JwtCredentialService {
   ): Promise<W3cV2VerifyPresentationResult> {
     const validationResults: W3cV2VerifyPresentationResult = {
       isValid: false,
-      validations: {},
+      presentation: {
+        isValid: false,
+        validations: {},
+      },
+      credentialEntries: [],
     }
 
     try {
@@ -276,11 +280,11 @@ export class W3cV2JwtCredentialService {
           throw new CredoError(`JWT payload 'aud' does not include domain '${options.domain}'`)
         }
 
-        validationResults.validations.dataModel = {
+        validationResults.presentation.validations.dataModel = {
           isValid: true,
         }
       } catch (error) {
-        validationResults.validations.dataModel = {
+        validationResults.presentation.validations.dataModel = {
           isValid: false,
           error,
         }
@@ -306,17 +310,17 @@ export class W3cV2JwtCredentialService {
         })
 
         if (!signatureResult.isValid) {
-          validationResults.validations.presentationSignature = {
+          validationResults.presentation.validations.presentationSignature = {
             isValid: false,
             error: new CredoError('Invalid JWS signature on presentation'),
           }
         } else {
-          validationResults.validations.presentationSignature = {
+          validationResults.presentation.validations.presentationSignature = {
             isValid: true,
           }
         }
       } catch (error) {
-        validationResults.validations.presentationSignature = {
+        validationResults.presentation.validations.presentationSignature = {
           isValid: false,
           error,
         }
@@ -328,7 +332,7 @@ export class W3cV2JwtCredentialService {
         presentation.resolvedPresentation.holderId &&
         proverVerificationMethod.controller !== presentation.resolvedPresentation.holderId
       ) {
-        validationResults.validations.holderIsSigner = {
+        validationResults.presentation.validations.holderIsSigner = {
           isValid: false,
           error: new CredoError(
             `Presentation is signed using verification method ${proverVerificationMethod.id}, while the holder of the presentation is '${presentation.resolvedPresentation.holderId}'`
@@ -337,7 +341,7 @@ export class W3cV2JwtCredentialService {
       } else {
         // If no holderId is present, this validation passes by default as there can't be
         // a mismatch between the 'holder' property and the signer of the presentation.
-        validationResults.validations.holderIsSigner = {
+        validationResults.presentation.validations.holderIsSigner = {
           isValid: true,
         }
       }
@@ -346,7 +350,7 @@ export class W3cV2JwtCredentialService {
       const credentials = asArray(presentation.resolvedPresentation.verifiableCredential)
 
       // Verify all credentials in parallel, and await the result
-      validationResults.validations.credentials = await Promise.all(
+      validationResults.credentialEntries = await Promise.all(
         credentials.map(async (credential) => {
           if (
             !(credential instanceof W3cV2EnvelopedVerifiableCredential) ||
@@ -403,10 +407,11 @@ export class W3cV2JwtCredentialService {
         })
       )
 
-      // Deeply nested check whether all validations have passed
-      validationResults.isValid = Object.values(validationResults.validations).every((v) =>
-        Array.isArray(v) ? v.every((vv) => vv.isValid) : v.isValid
+      validationResults.presentation.isValid = Object.values(validationResults.presentation.validations).every(
+        (validation) => validation.isValid
       )
+      validationResults.isValid =
+        validationResults.presentation.isValid && validationResults.credentialEntries.every((entry) => entry.isValid)
 
       return validationResults
     } catch (error) {

@@ -102,7 +102,11 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
       },
     }) as W3cV2JwtVerifiablePresentation
 
-    jwtService.verifyPresentation.mockResolvedValue({ isValid: true, validations: {} })
+    jwtService.verifyPresentation.mockResolvedValue({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
 
     const result = await service.verifyPresentation(agentContext, {
       presentation: jwtPresentation,
@@ -111,6 +115,10 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
 
     expect(jwtService.verifyPresentation).toHaveBeenCalledTimes(1)
     expect(sdJwtService.verifyPresentation).not.toHaveBeenCalled()
-    expect(result).toEqual({ isValid: true, validations: {} })
+    expect(result).toEqual({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
   })
 })
