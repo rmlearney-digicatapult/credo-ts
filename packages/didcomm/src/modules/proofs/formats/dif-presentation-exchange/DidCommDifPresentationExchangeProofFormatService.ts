@@ -308,7 +308,11 @@ export class DidCommDifPresentationExchangeProofFormatService
     try {
       ps.validatePresentationDefinition(request.presentation_definition)
       ps.validatePresentationSubmission(jsonPresentation.presentation_submission)
-      ps.validatePresentation(request.presentation_definition, parsedPresentation)
+      ps.validatePresentation(
+        request.presentation_definition,
+        parsedPresentation,
+        jsonPresentation.presentation_submission
+      )
 
       let verificationResult: W3cVerifyPresentationResult
 
