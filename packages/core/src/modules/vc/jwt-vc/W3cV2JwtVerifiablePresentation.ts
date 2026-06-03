@@ -70,6 +70,10 @@ export class W3cV2JwtVerifiablePresentation {
     const header = jwt.header
     const payload = jwt.payload
 
+    if (header.alg === 'none') {
+      throw new CredoError(`The provided W3C VP JWT uses 'alg'='none', which is not allowed.`)
+    }
+
     if ('typ' in header && header.typ !== 'vp+jwt') {
       throw new CredoError(`The provided W3C VP JWT does not have the correct 'typ' header.`)
     }

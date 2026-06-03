@@ -70,6 +70,10 @@ export class W3cV2SdJwtVerifiablePresentation {
     const header = sdJwt.header
     const payload = sdJwt.prettyClaims
 
+    if (header.alg === 'none') {
+      throw new CredoError(`The provided W3C VP SD-JWT uses 'alg'='none', which is not allowed.`)
+    }
+
     if ('typ' in header && header.typ !== 'vp+sd-jwt') {
       throw new CredoError(`The provided W3C VP JWT does not have the correct 'typ' header.`)
     }
