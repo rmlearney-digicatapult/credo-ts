@@ -822,7 +822,9 @@ export class OpenId4VpVerifierService {
       )
 
       if (sdJwtPresentationIndexes.length > 0) {
-        throw new CredoError('SD-JWT VC presentations are not supported in Presentation Exchange responses at this time.')
+        throw new CredoError(
+          'SD-JWT VC presentations are not supported in Presentation Exchange responses at this time.'
+        )
       }
 
       const verifiablePresentations = result.pex.presentations.map((presentation) =>
