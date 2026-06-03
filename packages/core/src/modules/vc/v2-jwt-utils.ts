@@ -49,34 +49,58 @@ export async function extractHolderFromPresentationCredentials(
   agentContext: AgentContext,
   presentation: W3cV2Presentation
 ) {
-  // At the moment, we only support signing presentations with a single credential
-  // Technically, it should be possible to support more than a single one. However,
-  // in the context we support (OID4VP) it doesn't make sense to support multiple ones.
   const credentials = asArray(presentation.verifiableCredential)
-  if (credentials.length !== 1) {
-    throw new CredoError('Only a single verifiable credential is supported in a presentation')
+  if (credentials.length === 0) {
+    throw new CredoError('Presentation does not include any verifiable credentials')
   }
 
-  const credential = credentials[0]
-  if (!(credential instanceof W3cV2EnvelopedVerifiableCredential)) {
-    throw new CredoError('Only enveloped credentials are supported when signing JWT/SD-JWT presentations')
+  let holderFromCredential: Awaited<ReturnType<typeof extractKeyFromHolderBinding>> | undefined
+
+  for (const [credentialIndex, credential] of credentials.entries()) {
+    if (!(credential instanceof W3cV2EnvelopedVerifiableCredential)) {
+      throw new CredoError(
+        `JWT/SD-JWT VP profile policy requires enveloped credentials. Unsupported credential entry at index ${credentialIndex}.`
+      )
+    }
+
+    let claims: Record<string, unknown>
+    if (credential.envelopedCredential instanceof W3cV2SdJwtVerifiableCredential) {
+      claims = credential.envelopedCredential.sdJwt.prettyClaims
+    } else if (credential.envelopedCredential instanceof W3cV2JwtVerifiableCredential) {
+      claims = credential.envelopedCredential.jwt.payload.toJson()
+    } else {
+      throw new CredoError(
+        `JWT/SD-JWT VP profile policy only supports vc+jwt and vc+sd-jwt credentials. Unsupported credential format at index ${credentialIndex}.`
+      )
+    }
+
+    // Profile policy: each included credential must carry holder binding and all
+    // holder bindings must resolve to the same key used to sign the presentation.
+    const holderBinding = parseHolderBindingFromCredential(claims)
+    if (!holderBinding) {
+      throw new CredoError(
+        `JWT/SD-JWT VP profile policy requires a holder binding ('cnf') on every included credential. Missing on credential entry at index ${credentialIndex}.`
+      )
+    }
+
+    const extractedHolder = await extractKeyFromHolderBinding(agentContext, holderBinding, { forSigning: true })
+    if (!holderFromCredential) {
+      holderFromCredential = extractedHolder
+      continue
+    }
+
+    if (holderFromCredential.publicJwk.fingerprint !== extractedHolder.publicJwk.fingerprint) {
+      throw new CredoError(
+        `JWT/SD-JWT VP profile policy requires all included credentials to share one holder binding key. Mismatch on credential entry at index ${credentialIndex}.`
+      )
+    }
   }
 
-  let claims: Record<string, unknown>
-
-  if (credential.envelopedCredential instanceof W3cV2SdJwtVerifiableCredential) {
-    claims = credential.envelopedCredential.sdJwt.prettyClaims
-  } else {
-    claims = credential.envelopedCredential.jwt.payload.toJson()
+  if (!holderFromCredential) {
+    throw new CredoError('Unable to determine holder binding from credentials included in presentation')
   }
 
-  // We require the credential to include a holder binding in the form of a 'cnf' claim
-  const holderBinding = parseHolderBindingFromCredential(claims)
-  if (!holderBinding) {
-    throw new CredoError('No holder binding found in credential included in presentation')
-  }
-
-  return await extractKeyFromHolderBinding(agentContext, holderBinding, { forSigning: true })
+  return holderFromCredential
 }
 
 /**
