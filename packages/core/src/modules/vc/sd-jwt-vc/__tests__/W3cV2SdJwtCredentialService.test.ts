@@ -530,25 +530,7 @@ describe('W3cV2SdJwtCredentialService', () => {
             },
           },
         },
-        credentialEntries: [
-          {
-            isValid: true,
-            validations: {
-              dataModel: {
-                isValid: true,
-              },
-              signature: {
-                isValid: true,
-              },
-              issuerIsSigner: {
-                isValid: true,
-              },
-              credentialSubjectAuthentication: {
-                isValid: true,
-              },
-            },
-          },
-        ],
+        credentialEntries: [],
       })
     })
   })

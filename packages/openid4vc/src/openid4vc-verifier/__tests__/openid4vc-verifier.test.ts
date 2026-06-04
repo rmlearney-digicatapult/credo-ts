@@ -136,7 +136,12 @@ describe('OpenId4VcVerifier', () => {
 
       const verifierService = verifier.agent.dependencyManager.resolve(OpenId4VpVerifierService)
       const parseAuthorizationResponseSpy = vi
-        .spyOn(verifierService as unknown as Record<string, unknown>, 'parseAuthorizationResponse' as never)
+        .spyOn(
+          verifierService as unknown as {
+            parseAuthorizationResponse: (...args: unknown[]) => Promise<unknown>
+          },
+          'parseAuthorizationResponse'
+        )
         .mockResolvedValue({
           type: 'pex',
           pex: {

@@ -6,8 +6,7 @@ import { injectable } from '../../../plugins'
 import { asArray, JsonTransformer, MessageValidator, nowInSeconds } from '../../../utils'
 import { getPublicJwkFromVerificationMethod } from '../../dids/domain/key-type/keyDidMapping'
 import { extractKeyFromHolderBinding } from '../../sd-jwt-vc/utils'
-import type { SingleValidationResult, W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models'
-import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
+import type { W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models'
 import {
   extractHolderFromPresentationCredentials,
   getVerificationMethodForJwt,
@@ -186,7 +185,9 @@ export class W3cV2JwtCredentialService {
         }
       }
 
-      validationResults.isValid = Object.values(validationResults.validations).every((v) => v.isValid)
+      validationResults.isValid = Object.values(validationResults.validations).every(
+        (validation) => validation?.isValid === true
+      )
 
       return validationResults
     } catch (error) {
@@ -295,10 +296,9 @@ export class W3cV2JwtCredentialService {
       const proverVerificationMethod = await getVerificationMethodForJwt(agentContext, presentation, ['authentication'])
       const proverPublicKey = getPublicJwkFromVerificationMethod(proverVerificationMethod)
 
-      let signatureResult: VerifyJwsResult | undefined
       try {
         // Verify the JWS signature
-        signatureResult = await this.jwsService.verifyJws(agentContext, {
+        const signatureResult = await this.jwsService.verifyJws(agentContext, {
           jws: presentation.jwt.serializedJwt,
           allowedJwsSignerMethods: ['did'],
           jwsSigner: {
@@ -346,72 +346,13 @@ export class W3cV2JwtCredentialService {
         }
       }
 
-      // To keep things simple, we only support JWT VCs in JWT VPs for now
-      const credentials = asArray(presentation.resolvedPresentation.verifiableCredential)
-
-      // Verify all credentials in parallel, and await the result
-      validationResults.credentialEntries = await Promise.all(
-        credentials.map(async (credential) => {
-          if (
-            !(credential instanceof W3cV2EnvelopedVerifiableCredential) ||
-            !(credential.envelopedCredential instanceof W3cV2JwtVerifiableCredential)
-          ) {
-            return {
-              isValid: false,
-              error: new CredoError(
-                'Credential is not of format JWT. Presentations in JWT format can only contain credentials in JWT format.'
-              ),
-              validations: {},
-            }
-          }
-
-          const credentialResult = await this.verifyCredential(agentContext, {
-            credential: credential.envelopedCredential,
-          })
-
-          let credentialSubjectAuthentication: SingleValidationResult
-
-          // Check whether any of the credentialSubjectIds for each credential is the same as the controller of the verificationMethod
-          // This authenticates the presentation creator controls one of the credentialSubject ids.
-          // NOTE: this doesn't take into account the case where the credentialSubject is no the holder. In the
-          // future we can add support for other flows, but for now this is the most common use case.
-          // TODO: should this be handled on a higher level? I don't really see it being handled in the jsonld lib
-          // or in the did-jwt-vc lib (it seems they don't even verify the credentials itself), but we probably need some
-          // more experience on the use cases before we loosen the restrictions (as it means we need to handle it on a higher layer).
-          const credentialSubjectIds = credential.resolvedCredential.credentialSubjectIds
-          const presentationAuthenticatesCredentialSubject = credentialSubjectIds.some(
-            (subjectId) => proverVerificationMethod.controller === subjectId
-          )
-
-          if (credentialSubjectIds.length > 0 && !presentationAuthenticatesCredentialSubject) {
-            credentialSubjectAuthentication = {
-              isValid: false,
-              error: new CredoError(
-                'Credential has one or more credentialSubject ids, but presentation does not authenticate credential subject'
-              ),
-            }
-          } else {
-            credentialSubjectAuthentication = {
-              isValid: true,
-            }
-          }
-
-          return {
-            ...credentialResult,
-            isValid: credentialResult.isValid && credentialSubjectAuthentication.isValid,
-            validations: {
-              ...credentialResult.validations,
-              credentialSubjectAuthentication,
-            },
-          }
-        })
-      )
-
       validationResults.presentation.isValid = Object.values(validationResults.presentation.validations).every(
         (validation) => validation.isValid
       )
-      validationResults.isValid =
-        validationResults.presentation.isValid && validationResults.credentialEntries.every((entry) => entry.isValid)
+
+      // Credential-entry dispatch is orchestrated by W3cV2CredentialService.
+      // This service verifies VP container integrity only.
+      validationResults.isValid = validationResults.presentation.isValid
 
       return validationResults
     } catch (error) {
