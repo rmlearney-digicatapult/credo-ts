@@ -1,6 +1,7 @@
 import type { SingleValidationResult } from './W3cVerifyResult'
 
 export type W3cV2VerifyCredentialResult = W3cV2VerifyResult<W3cV2CredentialValidations>
+
 export interface W3cV2VerifyPresentationResult {
   /**
    * Whether the verification as a whole is valid. This means the VP-level

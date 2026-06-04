@@ -152,7 +152,7 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
     expect(result.credentialEntries[0]?.isValid).toBe(true)
     expect(result.credentialEntries[1]?.isValid).toBe(false)
     expect(result.credentialEntries[1]?.error?.message).toContain(
-      "Credential entry uses 'vc+sd-jwt' inside a non-'vp+sd-jwt' presentation"
+      "Credential entry uses 'vc+sd-jwt' inside 'vp+jwt'"
     )
     expect(result.credentialEntries[2]?.isValid).toBe(false)
     expect(result.credentialEntries[2]?.error?.message).toContain(
@@ -183,7 +183,7 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
     expect(result.credentialEntries).toHaveLength(3)
     expect(result.credentialEntries[0]?.isValid).toBe(false)
     expect(result.credentialEntries[0]?.error?.message).toContain(
-      "Credential entry uses 'vc+jwt' inside a non-'vp+jwt' presentation"
+      "Credential entry uses 'vc+jwt' inside 'vp+sd-jwt'"
     )
     expect(result.credentialEntries[1]?.isValid).toBe(true)
     expect(result.credentialEntries[2]?.isValid).toBe(false)

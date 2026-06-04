@@ -289,14 +289,15 @@ export class W3cV2CredentialService {
         }
 
         const enclosed = entry.envelopedCredential
-
         let credentialResult: W3cV2VerifyCredentialResult
-        if (enclosed instanceof W3cV2JwtVerifiableCredential) {
-          if (outerPresentationFormat !== ClaimFormat.JwtW3cVp) {
+
+        if (outerPresentationFormat === ClaimFormat.JwtW3cVp) {
+          if (!(enclosed instanceof W3cV2JwtVerifiableCredential)) {
             return {
               isValid: false,
               error: new CredoError(
-                "Credential entry uses 'vc+jwt' inside a non-'vp+jwt' presentation. VC-JOSE-COSE requires enclosed credentials to use the securing mechanism of the enclosing VP profile."
+                `Credential entry uses '${this.getClaimFormat(enclosed) ?? 'an unsupported enclosed credential format'}' inside 'vp+jwt'. ` +
+                  "VC-JOSE-COSE requires credentials enclosed in 'vp+jwt' to use 'vc+jwt'."
               ),
               validations: {},
             }
@@ -305,12 +306,13 @@ export class W3cV2CredentialService {
           credentialResult = await this.w3cV2JwtCredentialService.verifyCredential(agentContext, {
             credential: enclosed,
           } as W3cV2JwtVerifyCredentialOptions)
-        } else if (enclosed instanceof W3cV2SdJwtVerifiableCredential) {
-          if (outerPresentationFormat !== ClaimFormat.SdJwtW3cVp) {
+        } else {
+          if (!(enclosed instanceof W3cV2SdJwtVerifiableCredential)) {
             return {
               isValid: false,
               error: new CredoError(
-                "Credential entry uses 'vc+sd-jwt' inside a non-'vp+sd-jwt' presentation. VC-JOSE-COSE requires enclosed credentials to use the securing mechanism of the enclosing VP profile."
+                `Credential entry uses '${this.getClaimFormat(enclosed) ?? 'an unsupported enclosed credential format'}' inside 'vp+sd-jwt'. ` +
+                  "VC-JOSE-COSE requires credentials enclosed in 'vp+sd-jwt' to use 'vc+sd-jwt'."
               ),
               validations: {},
             }
@@ -319,12 +321,6 @@ export class W3cV2CredentialService {
           credentialResult = await this.w3cV2SdJwtCredentialService.verifyCredential(agentContext, {
             credential: enclosed,
           } as W3cV2SdJwtVerifyCredentialOptions)
-        } else {
-          return {
-            isValid: false,
-            error: new CredoError('Unsupported enclosed credential type in presentation entry.'),
-            validations: {},
-          }
         }
 
         return this.mergeCredentialSubjectAuthenticationValidation(
