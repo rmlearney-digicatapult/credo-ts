@@ -247,13 +247,16 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
   })
 
   test('verifyPresentation marks credential invalid when presenter does not authenticate credential subject', async () => {
+    const jwtOnlyResolvedPresentation = {
+      ...mixedVpBaseResolvedPresentation,
+      holder: 'did:example:presenter',
+      verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
+    }
+    Object.setPrototypeOf(jwtOnlyResolvedPresentation, Object.getPrototypeOf(mixedVpBaseResolvedPresentation))
+
     const jwtOnlyVp = {
       __proto__: W3cV2JwtVerifiablePresentation.prototype,
-      resolvedPresentation: {
-        ...mixedVpBaseResolvedPresentation,
-        holder: 'did:example:presenter',
-        verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
-      },
+      resolvedPresentation: jwtOnlyResolvedPresentation,
     }
 
     jwtService.verifyPresentation.mockResolvedValue({
@@ -278,12 +281,15 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
   })
 
   test('verifyPresentation returns valid when outer presentation and enclosed credentials are valid', async () => {
+    const jwtOnlyResolvedPresentation = {
+      ...mixedVpBaseResolvedPresentation,
+      verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
+    }
+    Object.setPrototypeOf(jwtOnlyResolvedPresentation, Object.getPrototypeOf(mixedVpBaseResolvedPresentation))
+
     const jwtOnlyVp = {
       __proto__: W3cV2JwtVerifiablePresentation.prototype,
-      resolvedPresentation: {
-        ...mixedVpBaseResolvedPresentation,
-        verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
-      },
+      resolvedPresentation: jwtOnlyResolvedPresentation,
     }
 
     jwtService.verifyPresentation.mockResolvedValue({
