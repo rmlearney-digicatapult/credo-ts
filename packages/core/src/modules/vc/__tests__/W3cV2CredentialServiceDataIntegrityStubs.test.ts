@@ -3,7 +3,6 @@ import { W3cV2JwtVerifiablePresentation } from '../jwt-vc'
 import { CredoEs256DidJwkJwtVc, CredoEs256DidKeyJwtVp } from '../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
 import { W3cV2JwtVerifiableCredential } from '../jwt-vc/W3cV2JwtVerifiableCredential'
 import { ClaimFormat } from '../models'
-import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 import { W3cV2SdJwtVerifiableCredential } from '../sd-jwt-vc'
 import {
   CredoEs256DidJwkJwtVc as CredoEs256DidJwkSdJwtVc,
@@ -151,9 +150,7 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
     expect(result.credentialEntries).toHaveLength(3)
     expect(result.credentialEntries[0]?.isValid).toBe(true)
     expect(result.credentialEntries[1]?.isValid).toBe(false)
-    expect(result.credentialEntries[1]?.error?.message).toContain(
-      "Credential entry uses 'vc+sd-jwt' inside 'vp+jwt'"
-    )
+    expect(result.credentialEntries[1]?.error?.message).toContain("Credential entry uses 'vc+sd-jwt' inside 'vp+jwt'")
     expect(result.credentialEntries[2]?.isValid).toBe(false)
     expect(result.credentialEntries[2]?.error?.message).toContain(
       "Data Integrity format 'di_vc' is not yet implemented"
@@ -182,9 +179,7 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
     expect(result.presentation.isValid).toBe(true)
     expect(result.credentialEntries).toHaveLength(3)
     expect(result.credentialEntries[0]?.isValid).toBe(false)
-    expect(result.credentialEntries[0]?.error?.message).toContain(
-      "Credential entry uses 'vc+jwt' inside 'vp+sd-jwt'"
-    )
+    expect(result.credentialEntries[0]?.error?.message).toContain("Credential entry uses 'vc+jwt' inside 'vp+sd-jwt'")
     expect(result.credentialEntries[1]?.isValid).toBe(true)
     expect(result.credentialEntries[2]?.isValid).toBe(false)
     expect(result.credentialEntries[2]?.error?.message).toContain(
@@ -255,7 +250,6 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
     const jwtOnlyVp = {
       __proto__: W3cV2JwtVerifiablePresentation.prototype,
       resolvedPresentation: {
-        __proto__: W3cV2Presentation.prototype,
         ...mixedVpBaseResolvedPresentation,
         holder: 'did:example:presenter',
         verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
@@ -287,7 +281,6 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
     const jwtOnlyVp = {
       __proto__: W3cV2JwtVerifiablePresentation.prototype,
       resolvedPresentation: {
-        __proto__: W3cV2Presentation.prototype,
         ...mixedVpBaseResolvedPresentation,
         verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
       },
