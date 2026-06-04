@@ -13,6 +13,19 @@ import {
 } from './fixtures/credo-jwt-vc-v2'
 
 describe('W3cV2 JOSE header and data model compliance', () => {
+  test('accepts vc+jwt when typ and cty headers are absent', () => {
+    // VC-JOSE-COSE specifies `typ` and `cty` as SHOULD for JOSE/SD-JWT VC/VP profiles.
+    // Absence is therefore allowed; only present values must match profile.
+    // See: https://www.w3.org/TR/vc-jose-cose/#securing-with-jose and
+    // https://www.w3.org/TR/vc-jose-cose/#securing-with-sd-jwt
+    const compact = rewriteCompactJoseHeader(CredoEs256DidJwkJwtVcJwt, (header) => {
+      const { typ: _typ, cty: _cty, ...rest } = header
+      return rest
+    })
+
+    expect(() => W3cV2JwtVerifiableCredential.fromCompact(compact)).not.toThrow()
+  })
+
   test('rejects vc+jwt when cty header is invalid', () => {
     const compact = rewriteCompactJoseHeader(CredoEs256DidJwkJwtVcJwt, (header) => ({ ...header, cty: 'vp' }))
 
