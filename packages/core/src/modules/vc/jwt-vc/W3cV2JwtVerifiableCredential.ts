@@ -78,8 +78,8 @@ export class W3cV2JwtVerifiableCredential {
       throw new CredoError(`The provided W3C VC JWT does not have the correct 'typ' header.`)
     }
 
-    if ('cyt' in header && header.cyt !== 'vc') {
-      throw new CredoError(`The provided W3C VC JWT does not have the correct 'cyt' header.`)
+    if ('cty' in header && header.cty !== 'vc') {
+      throw new CredoError(`The provided W3C VC JWT does not have the correct 'cty' header.`)
     }
 
     const iss = header.iss ?? payload.iss

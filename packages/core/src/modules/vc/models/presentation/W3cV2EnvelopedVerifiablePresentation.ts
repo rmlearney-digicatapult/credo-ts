@@ -2,11 +2,7 @@ import { Exclude, Expose } from 'class-transformer'
 import { buildMessage, IsDataURI, ValidateBy, type ValidationOptions } from 'class-validator'
 import { CredoError } from '../../../../error'
 import type { JsonObject, SingleOrArray } from '../../../../types'
-import {
-  CREDENTIALS_CONTEXT_V2_URL,
-  ENVELOPED_VERIFIABLE_CREDENTIAL_TYPE,
-  ENVELOPED_VERIFIABLE_PRESENTATION_TYPE,
-} from '../../constants'
+import { CREDENTIALS_CONTEXT_V2_URL, ENVELOPED_VERIFIABLE_PRESENTATION_TYPE } from '../../constants'
 import { W3cV2JwtVerifiablePresentation } from '../../jwt-vc'
 import { W3cV2SdJwtVerifiablePresentation } from '../../sd-jwt-vc'
 import { IsCredentialJsonLdContext } from '../../validators'
@@ -27,7 +23,7 @@ export class W3cV2EnvelopedVerifiablePresentation {
     if (options) {
       this.context = options.context ?? CREDENTIALS_CONTEXT_V2_URL
       this.id = options.id
-      this.type = options.type ?? ENVELOPED_VERIFIABLE_CREDENTIAL_TYPE
+      this.type = options.type ?? ENVELOPED_VERIFIABLE_PRESENTATION_TYPE
       this._envelopedPresentation = presentationFromDataUri(options.id)
     }
   }

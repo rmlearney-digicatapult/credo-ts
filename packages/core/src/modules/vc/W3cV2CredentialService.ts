@@ -14,11 +14,12 @@ import { W3cV2JwtCredentialService } from './jwt-vc/W3cV2JwtCredentialService'
 import type {
   W3cV2PresentationCredentialEntry,
   W3cV2VerifiableCredential,
+  W3cV2VerifiablePresentation,
   W3cV2VerifyCredentialResult,
   W3cV2VerifyPresentationResult,
 } from './models'
-import { ClaimFormat, W3cV2EnvelopedVerifiableCredential } from './models'
-import type { W3cV2VerifiablePresentation } from './models/presentation/W3cV2VerifiablePresentation'
+import { ClaimFormat, decodeW3cV2VerifiablePresentation, W3cV2EnvelopedVerifiableCredential } from './models'
+import { decodeW3cV2VerifiableCredential } from './models/credential/W3cV2VerifiableCredential'
 import { W3cV2CredentialRecord, W3cV2CredentialRepository } from './repository'
 import {
   W3cV2SdJwtCredentialService,
@@ -89,17 +90,24 @@ export class W3cV2CredentialService {
     agentContext: AgentContext,
     options: W3cV2VerifyCredentialOptions
   ): Promise<W3cV2VerifyCredentialResult> {
-    if (options.credential instanceof W3cV2JwtVerifiableCredential) {
-      return this.w3cV2JwtCredentialService.verifyCredential(agentContext, options as W3cV2JwtVerifyCredentialOptions)
-    }
-    if (options.credential instanceof W3cV2SdJwtVerifiableCredential) {
-      return this.w3cV2SdJwtCredentialService.verifyCredential(
-        agentContext,
-        options as W3cV2SdJwtVerifyCredentialOptions
-      )
+    const credential =
+      typeof options.credential === 'string' ? decodeW3cV2VerifiableCredential(options.credential) : options.credential
+
+    if (credential instanceof W3cV2JwtVerifiableCredential) {
+      return this.w3cV2JwtCredentialService.verifyCredential(agentContext, {
+        ...options,
+        credential,
+      } as W3cV2JwtVerifyCredentialOptions)
     }
 
-    if (this.getClaimFormat(options.credential) === ClaimFormat.DiVc) {
+    if (credential instanceof W3cV2SdJwtVerifiableCredential) {
+      return this.w3cV2SdJwtCredentialService.verifyCredential(agentContext, {
+        ...options,
+        credential,
+      } as W3cV2SdJwtVerifyCredentialOptions)
+    }
+
+    if (this.getClaimFormat(credential) === ClaimFormat.DiVc) {
       this.throwDataIntegrityStubError('verifyCredential', ClaimFormat.DiVc, options as W3cV2DiVerifyCredentialOptions)
     }
 
@@ -168,7 +176,7 @@ export class W3cV2CredentialService {
   ): Promise<W3cV2VerifyPresentationResult> {
     const presentation =
       typeof options.presentation === 'string'
-        ? this.parseVerifiablePresentationInput(options.presentation)
+        ? decodeW3cV2VerifiablePresentation(options.presentation)
         : options.presentation
 
     if (presentation instanceof W3cV2DataIntegrityVerifiablePresentation) {
@@ -200,15 +208,13 @@ export class W3cV2CredentialService {
     let signerId: string | undefined
     let outerPresentationFormat: ClaimFormat.JwtW3cVp | ClaimFormat.SdJwtW3cVp
 
+    // Phase 1: verify the outer secured VP envelope and derive the authenticated presenter.
     if (presentation instanceof W3cV2JwtVerifiablePresentation) {
       outerPresentationFormat = ClaimFormat.JwtW3cVp
-      const presentationResult = await this.w3cV2JwtCredentialService.verifyPresentation(
-        agentContext,
-        {
-          ...options,
-          presentation,
-        } as W3cV2JwtVerifyPresentationOptions
-      )
+      const presentationResult = await this.w3cV2JwtCredentialService.verifyPresentation(agentContext, {
+        ...options,
+        presentation,
+      } as W3cV2JwtVerifyPresentationOptions)
       validationResults.presentation = presentationResult.presentation
 
       if (!presentationResult.presentation.isValid) {
@@ -231,13 +237,10 @@ export class W3cV2CredentialService {
       entries = asArray(presentation.resolvedPresentation.verifiableCredential)
     } else if (presentation instanceof W3cV2SdJwtVerifiablePresentation) {
       outerPresentationFormat = ClaimFormat.SdJwtW3cVp
-      const presentationResult = await this.w3cV2SdJwtCredentialService.verifyPresentation(
-        agentContext,
-        {
-          ...options,
-          presentation,
-        } as W3cV2SdJwtVerifyPresentationOptions
-      )
+      const presentationResult = await this.w3cV2SdJwtCredentialService.verifyPresentation(agentContext, {
+        ...options,
+        presentation,
+      } as W3cV2SdJwtVerifyPresentationOptions)
       validationResults.presentation = presentationResult.presentation
 
       if (!presentationResult.presentation.isValid) {
@@ -264,6 +267,7 @@ export class W3cV2CredentialService {
       )
     }
 
+    // Phase 2: walk enclosed credential entries and verify each credential with profile checks.
     validationResults.credentialEntries = await Promise.all(
       entries.map(async (entry) => {
         if (entry instanceof W3cV2DataIntegrityVerifiableCredential) {
@@ -323,7 +327,11 @@ export class W3cV2CredentialService {
           }
         }
 
-        return this.mergeCredentialSubjectAuthenticationValidation(credentialResult, signerId, entry.resolvedCredential.credentialSubjectIds)
+        return this.mergeCredentialSubjectAuthenticationValidation(
+          credentialResult,
+          signerId,
+          entry.resolvedCredential.credentialSubjectIds
+        )
       })
     )
 
@@ -355,20 +363,6 @@ export class W3cV2CredentialService {
         `Only DI stubs are present in chore/vc2-spec-alignment pending a dedicated DI port.`,
       { cause }
     )
-  }
-
-  private parseVerifiablePresentationInput(presentation: string) {
-    try {
-      return W3cV2JwtVerifiablePresentation.fromCompact(presentation)
-    } catch {
-      // If this is not a VP JWT compact string, attempt VP SD-JWT compact parsing.
-    }
-
-    try {
-      return W3cV2SdJwtVerifiablePresentation.fromCompact(presentation)
-    } catch {
-      throw new CredoError("Unsupported presentation string encoding. Expected compact 'vp+jwt' or 'vp+sd-jwt'.")
-    }
   }
 
   private getClaimFormat(value: unknown): string | undefined {

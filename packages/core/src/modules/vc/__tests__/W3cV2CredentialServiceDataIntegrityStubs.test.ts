@@ -1,7 +1,17 @@
 import { CredoError } from '../../../error'
+import { W3cV2JwtVerifiablePresentation } from '../jwt-vc'
+import { CredoEs256DidJwkJwtVc, CredoEs256DidKeyJwtVp } from '../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
+import { W3cV2JwtVerifiableCredential } from '../jwt-vc/W3cV2JwtVerifiableCredential'
 import { ClaimFormat } from '../models'
+import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
+import { W3cV2SdJwtVerifiableCredential } from '../sd-jwt-vc'
+import {
+  CredoEs256DidJwkJwtVc as CredoEs256DidJwkSdJwtVc,
+  CredoEs256DidKeyJwtVp as CredoEs256DidKeySdJwtVp,
+} from '../sd-jwt-vc/__tests__/fixtures/credo-sd-jwt-vc'
+import { W3cV2SdJwtVerifiablePresentation } from '../sd-jwt-vc/W3cV2SdJwtVerifiablePresentation'
 import { W3cV2CredentialService } from '../W3cV2CredentialService'
-import { mixedJwtVp, mixedSdJwtVp } from './mixedVpFixture'
+import { mixedJwtVp, mixedSdJwtVp, mixedVpBaseResolvedPresentation } from './mixedVpFixture'
 
 describe('W3cV2CredentialService Data Integrity stubs', () => {
   const repository = {
@@ -59,6 +69,30 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
         credential: { claimFormat: ClaimFormat.DiVc },
       } as never)
     ).rejects.toThrow("Data Integrity format 'di_vc' is not supported")
+  })
+
+  test('verifyCredential normalizes compact JWT VC strings before routing', async () => {
+    jwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    await service.verifyCredential(agentContext, {
+      credential: CredoEs256DidJwkJwtVc,
+    } as never)
+
+    expect(jwtService.verifyCredential).toHaveBeenCalledTimes(1)
+    expect(sdJwtService.verifyCredential).not.toHaveBeenCalled()
+    expect(jwtService.verifyCredential.mock.calls[0]?.[1].credential).toBeInstanceOf(W3cV2JwtVerifiableCredential)
+  })
+
+  test('verifyCredential normalizes compact SD-JWT VC strings before routing', async () => {
+    sdJwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    await service.verifyCredential(agentContext, {
+      credential: CredoEs256DidJwkSdJwtVc,
+    } as never)
+
+    expect(sdJwtService.verifyCredential).toHaveBeenCalledTimes(1)
+    expect(jwtService.verifyCredential).not.toHaveBeenCalled()
+    expect(sdJwtService.verifyCredential.mock.calls[0]?.[1].credential).toBeInstanceOf(W3cV2SdJwtVerifiableCredential)
   })
 
   test('signPresentation rejects di_vp via stub hook', async () => {
@@ -157,5 +191,124 @@ describe('W3cV2CredentialService Data Integrity stubs', () => {
       "Data Integrity format 'di_vc' is not yet implemented"
     )
     expect(result.isValid).toBe(false)
+  })
+
+  test('verifyPresentation normalizes compact JWT VP strings before routing', async () => {
+    jwtService.verifyPresentation.mockResolvedValue({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
+    jwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    await service.verifyPresentation(agentContext, {
+      presentation: CredoEs256DidKeyJwtVp,
+      challenge: 'daf942ad-816f-45ee-a9fc-facd08e5abca',
+      domain: 'example.com',
+    } as never)
+
+    expect(jwtService.verifyPresentation).toHaveBeenCalledTimes(1)
+    expect(jwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBeInstanceOf(W3cV2JwtVerifiablePresentation)
+  })
+
+  test('verifyPresentation normalizes compact SD-JWT VP strings before routing', async () => {
+    sdJwtService.verifyPresentation.mockResolvedValue({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
+    sdJwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    await service.verifyPresentation(agentContext, {
+      presentation: CredoEs256DidKeySdJwtVp,
+      challenge: 'daf942ad-816f-45ee-a9fc-facd08e5abca',
+      domain: 'example.com',
+    } as never)
+
+    expect(sdJwtService.verifyPresentation).toHaveBeenCalledTimes(1)
+    expect(sdJwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBeInstanceOf(
+      W3cV2SdJwtVerifiablePresentation
+    )
+  })
+
+  test('verifyPresentation short-circuits when outer presentation verification fails', async () => {
+    jwtService.verifyPresentation.mockResolvedValue({
+      isValid: false,
+      presentation: { isValid: false, validations: {} },
+      credentialEntries: [],
+    })
+
+    const result = await service.verifyPresentation(agentContext, {
+      presentation: mixedJwtVp,
+      challenge: 'challenge-123',
+    } as never)
+
+    expect(jwtService.verifyPresentation).toHaveBeenCalledTimes(1)
+    expect(jwtService.verifyCredential).not.toHaveBeenCalled()
+    expect(sdJwtService.verifyCredential).not.toHaveBeenCalled()
+    expect(result.isValid).toBe(false)
+    expect(result.presentation.isValid).toBe(false)
+    expect(result.credentialEntries).toEqual([])
+  })
+
+  test('verifyPresentation marks credential invalid when presenter does not authenticate credential subject', async () => {
+    const jwtOnlyVp = {
+      __proto__: W3cV2JwtVerifiablePresentation.prototype,
+      resolvedPresentation: {
+        __proto__: W3cV2Presentation.prototype,
+        ...mixedVpBaseResolvedPresentation,
+        holder: 'did:example:presenter',
+        verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
+      },
+    }
+
+    jwtService.verifyPresentation.mockResolvedValue({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
+    jwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    const result = await service.verifyPresentation(agentContext, {
+      presentation: jwtOnlyVp,
+      challenge: 'challenge-123',
+    } as never)
+
+    expect(result.credentialEntries).toHaveLength(1)
+    expect(result.credentialEntries[0]?.isValid).toBe(false)
+    expect(result.credentialEntries[0]?.validations.credentialSubjectAuthentication?.isValid).toBe(false)
+    expect(result.credentialEntries[0]?.validations.credentialSubjectAuthentication?.error?.message).toContain(
+      'presentation does not authenticate credential subject'
+    )
+    expect(result.isValid).toBe(false)
+  })
+
+  test('verifyPresentation returns valid when outer presentation and enclosed credentials are valid', async () => {
+    const jwtOnlyVp = {
+      __proto__: W3cV2JwtVerifiablePresentation.prototype,
+      resolvedPresentation: {
+        __proto__: W3cV2Presentation.prototype,
+        ...mixedVpBaseResolvedPresentation,
+        verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
+      },
+    }
+
+    jwtService.verifyPresentation.mockResolvedValue({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
+    jwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    const result = await service.verifyPresentation(agentContext, {
+      presentation: jwtOnlyVp,
+      challenge: 'challenge-123',
+    } as never)
+
+    expect(result.presentation.isValid).toBe(true)
+    expect(result.credentialEntries).toHaveLength(1)
+    expect(result.credentialEntries[0]?.isValid).toBe(true)
+    expect(result.credentialEntries[0]?.validations.credentialSubjectAuthentication?.isValid).toBe(true)
+    expect(result.isValid).toBe(true)
   })
 })
