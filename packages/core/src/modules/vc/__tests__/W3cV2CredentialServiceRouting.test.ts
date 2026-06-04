@@ -12,7 +12,7 @@ import { W3cV2SdJwtVerifiablePresentation } from '../sd-jwt-vc/W3cV2SdJwtVerifia
 import { W3cV2CredentialService } from '../W3cV2CredentialService'
 import { mixedJwtVp, mixedSdJwtVp, mixedVpBaseResolvedPresentation } from './mixedVpFixture'
 
-describe('W3cV2CredentialService Data Integrity stubs', () => {
+describe('W3cV2CredentialService routing and stub guards', () => {
   const repository = {
     save: vi.fn(),
     deleteById: vi.fn(),
