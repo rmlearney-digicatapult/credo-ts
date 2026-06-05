@@ -6,9 +6,7 @@ import { W3cV2SdJwtCredentialService } from './sd-jwt-vc'
 import { W3cV2CredentialService } from './W3cV2CredentialService'
 import { W3cV2CredentialsApi } from './W3cV2CredentialsApi'
 
-export interface W3cV2CredentialsModuleConfigOptions {
-  // Reserved for future VC2 module-level options.
-}
+export type W3cV2CredentialsModuleConfigOptions = Record<string, never>
 
 /**
  * @public

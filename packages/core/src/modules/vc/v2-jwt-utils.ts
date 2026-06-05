@@ -15,7 +15,7 @@ import { extractKeyFromHolderBinding, parseHolderBindingFromCredential } from '.
 import { W3cV2JwtVerifiableCredential } from './jwt-vc/W3cV2JwtVerifiableCredential'
 import { W3cV2JwtVerifiablePresentation } from './jwt-vc/W3cV2JwtVerifiablePresentation'
 import { W3cV2EnvelopedVerifiableCredential } from './models/credential/W3cV2EnvelopedVerifiableCredential'
-import { W3cV2Presentation } from './models/presentation/W3cV2Presentation'
+import type { W3cV2Presentation } from './models/presentation/W3cV2Presentation'
 import { W3cV2SdJwtVerifiableCredential } from './sd-jwt-vc/W3cV2SdJwtVerifiableCredential'
 import { W3cV2SdJwtVerifiablePresentation } from './sd-jwt-vc/W3cV2SdJwtVerifiablePresentation'
 

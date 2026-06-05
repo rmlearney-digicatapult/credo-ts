@@ -10,6 +10,32 @@ import { W3cV2JwtVerifiablePresentation, type W3cV2JwtVerifiablePresentationOpti
 import { W3cV2SdJwtVerifiablePresentation, type W3cV2SdJwtVerifiablePresentationOptions } from '../../sd-jwt-vc'
 import { ClaimFormat } from '../ClaimFormat'
 
+export const decodeW3cV2EnvelopedVerifiablePresentation = (value: string) => {
+  if (!value.startsWith('data:')) {
+    throw new CredoError('Invalid Enveloped Verifiable Presentation: "id" is not a valid data URI')
+  }
+
+  const mimetypeData = value.slice(5)
+  const commaIndex = mimetypeData.indexOf(',')
+  if (commaIndex === -1) {
+    throw new CredoError('Invalid Enveloped Verifiable Presentation: "id" data URI is missing comma separator')
+  }
+
+  const mimetype = mimetypeData.slice(0, commaIndex)
+  const data = mimetypeData.slice(commaIndex + 1)
+
+  switch (mimetype) {
+    case 'application/vp+sd-jwt':
+      return W3cV2SdJwtVerifiablePresentation.fromCompact(data)
+
+    case 'application/vp+jwt':
+      return W3cV2JwtVerifiablePresentation.fromCompact(data)
+
+    default:
+      throw new CredoError(`Unsupported Enveloped Verifiable Presentation: ${mimetype} not recognized`)
+  }
+}
+
 export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
   try {
     if (typeof value !== 'string') {
@@ -17,6 +43,17 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
     }
 
     const trimmedValue = value.trim()
+
+    try {
+      const parsedJson = JSON.parse(trimmedValue)
+      if (isEmbeddedDataIntegrityPresentation(parsedJson)) {
+        return W3cV2DataIntegrityVerifiablePresentation.fromObject(parsedJson)
+      }
+    } catch {
+      // Not JSON; continue with envelope/compact encodings.
+    }
+
+    if (trimmedValue.startsWith('data:')) return decodeW3cV2EnvelopedVerifiablePresentation(trimmedValue)
 
     try {
       return W3cV2JwtVerifiablePresentation.fromCompact(trimmedValue)
@@ -36,6 +73,14 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
 
     throw new CredoError(`Value '${value}' is not a valid W3cV2VerifiablePresentation. ${error.message}`)
   }
+}
+
+function isEmbeddedDataIntegrityPresentation(
+  value: unknown
+): value is W3cV2DataIntegrityVerifiablePresentationOptions['securedPresentation'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+
+  return 'proof' in value
 }
 
 const encodePresentation = (value: unknown) => {

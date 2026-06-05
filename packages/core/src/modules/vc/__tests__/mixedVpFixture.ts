@@ -1,6 +1,7 @@
 import { W3cV2DataIntegrityVerifiableCredential } from '../data-integrity-v1'
 import { W3cV2JwtVerifiablePresentation } from '../jwt-vc'
 import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
+import { W3cV2EnvelopedVerifiablePresentation } from '../models/presentation/W3cV2EnvelopedVerifiablePresentation'
 import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 import { W3cV2SdJwtVerifiablePresentation } from '../sd-jwt-vc'
 
@@ -84,4 +85,32 @@ export const mixedSdJwtVp = {
 export const mixedUnsupportedVp = {
   __proto__: W3cV2Presentation.prototype,
   resolvedPresentation: mixedVpBaseResolvedPresentation,
+} as const
+
+// Nested graph fixtures for recursive VP traversal tests.
+export const mixedNestedLeafResolvedPresentation = {
+  ...mixedVpBaseResolvedPresentation,
+  verifiableCredential: [mixedVpBaseResolvedPresentation.verifiableCredential[0]],
+}
+Object.setPrototypeOf(mixedNestedLeafResolvedPresentation, Object.getPrototypeOf(mixedVpBaseResolvedPresentation))
+
+export const mixedNestedDecodedJwtVp = {
+  __proto__: W3cV2JwtVerifiablePresentation.prototype,
+  resolvedPresentation: mixedNestedLeafResolvedPresentation,
+} as const
+
+export const mixedNestedVpEntry = {
+  __proto__: W3cV2EnvelopedVerifiablePresentation.prototype,
+  id: 'data:application/vp+jwt,placeholder',
+} as const
+
+export const mixedNestedOuterResolvedPresentation = {
+  ...mixedVpBaseResolvedPresentation,
+  verifiableCredential: [mixedNestedVpEntry],
+}
+Object.setPrototypeOf(mixedNestedOuterResolvedPresentation, Object.getPrototypeOf(mixedVpBaseResolvedPresentation))
+
+export const mixedNestedOuterJwtVp = {
+  __proto__: W3cV2JwtVerifiablePresentation.prototype,
+  resolvedPresentation: mixedNestedOuterResolvedPresentation,
 } as const

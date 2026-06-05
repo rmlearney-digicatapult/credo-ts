@@ -13,12 +13,19 @@ import { W3cV2JwtVerifiableCredential, W3cV2JwtVerifiablePresentation } from './
 import { W3cV2JwtCredentialService } from './jwt-vc/W3cV2JwtCredentialService'
 import type {
   W3cV2PresentationCredentialEntry,
+  W3cV2PresentationCredentialEntryResult,
   W3cV2VerifiableCredential,
   W3cV2VerifiablePresentation,
   W3cV2VerifyCredentialResult,
   W3cV2VerifyPresentationResult,
 } from './models'
-import { ClaimFormat, decodeW3cV2VerifiablePresentation, W3cV2EnvelopedVerifiableCredential } from './models'
+import {
+  ClaimFormat,
+  decodeW3cV2EnvelopedVerifiablePresentation,
+  decodeW3cV2VerifiablePresentation,
+  W3cV2EnvelopedVerifiableCredential,
+  W3cV2EnvelopedVerifiablePresentation,
+} from './models'
 import { decodeW3cV2VerifiableCredential } from './models/credential/W3cV2VerifiableCredential'
 import { W3cV2CredentialRecord, W3cV2CredentialRepository } from './repository'
 import {
@@ -42,6 +49,8 @@ import type {
   W3cV2VerifyCredentialOptions,
   W3cV2VerifyPresentationOptions,
 } from './W3cV2CredentialServiceOptions'
+
+type VerifyPresentationRequestContext = Pick<W3cV2VerifyPresentationOptions, 'challenge' | 'domain'>
 
 @injectable()
 export class W3cV2CredentialService {
@@ -146,8 +155,8 @@ export class W3cV2CredentialService {
    * Flow:
    * 1. Verifies the outer VP using the format-specific service (`vp+jwt` or `vp+sd-jwt`).
    * 2. Derives the presenter identifier (holder id, or JWT verification method controller fallback).
-   * 3. Iterates over all enclosed credential entries and verifies each one with the matching
-   *    credential verifier (`vc+jwt` or `vc+sd-jwt`).
+   * 3. Recursively walks enclosed entries and verifies each credential entry with the matching
+   *    credential verifier (`vc+jwt` or `vc+sd-jwt`) based on the actual enclosed format.
    * 4. Adds `credentialSubjectAuthentication` validation to each credential result by checking
    *    whether the authenticated presenter matches at least one credentialSubject id.
    *
@@ -156,13 +165,11 @@ export class W3cV2CredentialService {
    *   to typed presentation instances before routing.
    * - `di_vp` is currently stubbed and rejected with a dedicated DI stub error.
    * - `di_vc` entries are currently stubbed and returned as explicit invalid entry results.
-   * - Enclosed credential securing mechanism must match the enclosing VP profile per VC-JOSE-COSE:
-   *   - `vp+jwt` may include `vc+jwt`
-   *   - `vp+sd-jwt` may include `vc+sd-jwt`
+   * - Nested VP entries are traversed recursively when represented as EnvelopedVerifiablePresentation.
    *
    * Return semantics:
    * - `presentation` contains the outer VP verification result.
-   * - `credentialEntries` contains one result per enclosed entry, including unsupported/mismatch
+   * - `credentialEntries` contains one result per traversed credential entry, including unsupported
    *   entries as invalid results.
    * - Top-level `isValid` is true only if the outer VP and all credential entry validations are valid.
    *
@@ -206,11 +213,9 @@ export class W3cV2CredentialService {
 
     let entries: W3cV2PresentationCredentialEntry[] = []
     let signerId: string | undefined
-    let outerPresentationFormat: ClaimFormat.JwtW3cVp | ClaimFormat.SdJwtW3cVp
 
     // Phase 1: verify the outer secured VP envelope and derive the authenticated presenter.
     if (presentation instanceof W3cV2JwtVerifiablePresentation) {
-      outerPresentationFormat = ClaimFormat.JwtW3cVp
       const presentationResult = await this.w3cV2JwtCredentialService.verifyPresentation(agentContext, {
         ...options,
         presentation,
@@ -236,7 +241,6 @@ export class W3cV2CredentialService {
       }
       entries = asArray(presentation.resolvedPresentation.verifiableCredential)
     } else if (presentation instanceof W3cV2SdJwtVerifiablePresentation) {
-      outerPresentationFormat = ClaimFormat.SdJwtW3cVp
       const presentationResult = await this.w3cV2SdJwtCredentialService.verifyPresentation(agentContext, {
         ...options,
         presentation,
@@ -267,74 +271,152 @@ export class W3cV2CredentialService {
       )
     }
 
-    // Phase 2: walk enclosed credential entries and verify each credential with profile checks.
-    validationResults.credentialEntries = await Promise.all(
-      entries.map(async (entry) => {
-        if (entry instanceof W3cV2DataIntegrityVerifiableCredential) {
-          return {
-            isValid: false,
-            error: new CredoError(
-              "Data Integrity format 'di_vc' is not yet implemented for W3C V2 credential verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
-            ),
-            validations: {},
-          }
-        }
-
-        if (!(entry instanceof W3cV2EnvelopedVerifiableCredential)) {
-          return {
-            isValid: false,
-            error: new CredoError('Unsupported credential entry type in presentation.'),
-            validations: {},
-          }
-        }
-
-        const enclosed = entry.envelopedCredential
-        let credentialResult: W3cV2VerifyCredentialResult
-
-        if (outerPresentationFormat === ClaimFormat.JwtW3cVp) {
-          if (!(enclosed instanceof W3cV2JwtVerifiableCredential)) {
-            return {
-              isValid: false,
-              error: new CredoError(
-                `Credential entry uses '${this.getClaimFormat(enclosed) ?? 'an unsupported enclosed credential format'}' inside 'vp+jwt'. ` +
-                  "VC-JOSE-COSE requires credentials enclosed in 'vp+jwt' to use 'vc+jwt'."
-              ),
-              validations: {},
-            }
-          }
-
-          credentialResult = await this.w3cV2JwtCredentialService.verifyCredential(agentContext, {
-            credential: enclosed,
-          } as W3cV2JwtVerifyCredentialOptions)
-        } else {
-          if (!(enclosed instanceof W3cV2SdJwtVerifiableCredential)) {
-            return {
-              isValid: false,
-              error: new CredoError(
-                `Credential entry uses '${this.getClaimFormat(enclosed) ?? 'an unsupported enclosed credential format'}' inside 'vp+sd-jwt'. ` +
-                  "VC-JOSE-COSE requires credentials enclosed in 'vp+sd-jwt' to use 'vc+sd-jwt'."
-              ),
-              validations: {},
-            }
-          }
-
-          credentialResult = await this.w3cV2SdJwtCredentialService.verifyCredential(agentContext, {
-            credential: enclosed,
-          } as W3cV2SdJwtVerifyCredentialOptions)
-        }
-
-        return this.mergeCredentialSubjectAuthenticationValidation(
-          credentialResult,
-          signerId,
-          entry.resolvedCredential.credentialSubjectIds
-        )
-      })
-    )
+    // Phase 2: walk enclosed credential entries and verify recursively by entry format.
+    validationResults.credentialEntries = await this.verifyPresentationEntries(agentContext, entries, signerId, {
+      challenge: options.challenge,
+      domain: options.domain,
+    })
 
     validationResults.isValid =
       validationResults.presentation.isValid && validationResults.credentialEntries.every((entry) => entry.isValid)
 
     return validationResults
+  }
+
+  private async verifyPresentationEntries(
+    agentContext: AgentContext,
+    entries: W3cV2PresentationCredentialEntry[],
+    signerId: string,
+    presentationContext: VerifyPresentationRequestContext
+  ): Promise<W3cV2PresentationCredentialEntryResult[]> {
+    const nestedResults = await Promise.all(
+      entries.map((entry) => this.verifyPresentationEntry(agentContext, entry, signerId, presentationContext))
+    )
+    return nestedResults.flat()
+  }
+
+  private async verifyPresentationEntry(
+    agentContext: AgentContext,
+    entry: W3cV2PresentationCredentialEntry,
+    signerId: string,
+    presentationContext: VerifyPresentationRequestContext
+  ): Promise<W3cV2PresentationCredentialEntryResult[]> {
+    if (entry instanceof W3cV2DataIntegrityVerifiableCredential) {
+      return [this.createInvalidCredentialEntryResult(this.getDataIntegrityCredentialStubError())]
+    }
+
+    if (entry instanceof W3cV2EnvelopedVerifiablePresentation) {
+      const nestedPresentation = decodeW3cV2EnvelopedVerifiablePresentation(entry.id)
+
+      const nestedPresentationResult =
+        nestedPresentation instanceof W3cV2JwtVerifiablePresentation
+          ? await this.w3cV2JwtCredentialService.verifyPresentation(agentContext, {
+              challenge: presentationContext.challenge,
+              domain: presentationContext.domain,
+              presentation: nestedPresentation,
+            } as W3cV2JwtVerifyPresentationOptions)
+          : nestedPresentation instanceof W3cV2SdJwtVerifiablePresentation
+            ? await this.w3cV2SdJwtCredentialService.verifyPresentation(agentContext, {
+                challenge: presentationContext.challenge,
+                domain: presentationContext.domain,
+                presentation: nestedPresentation,
+              } as W3cV2SdJwtVerifyPresentationOptions)
+            : undefined
+
+      if (!nestedPresentationResult) {
+        return [
+          this.createInvalidCredentialEntryResult(
+            new CredoError(
+              `Nested presentation entry uses '${this.getClaimFormat(nestedPresentation) ?? 'an unsupported nested presentation format'}'.`
+            )
+          ),
+        ]
+      }
+
+      if (!nestedPresentationResult.presentation.isValid) {
+        return [this.createInvalidCredentialEntryResult(new CredoError('Nested presentation verification failed.'))]
+      }
+
+      const nestedSignerId = await this.deriveSignerIdFromPresentation(agentContext, nestedPresentation)
+      if (!nestedSignerId) {
+        return [
+          this.createInvalidCredentialEntryResult(
+            new CredoError('Unable to derive signer id from nested presentation for credential entry validation.')
+          ),
+        ]
+      }
+
+      return this.verifyPresentationEntries(
+        agentContext,
+        asArray(nestedPresentation.resolvedPresentation.verifiableCredential),
+        nestedSignerId,
+        presentationContext
+      )
+    }
+
+    if (!(entry instanceof W3cV2EnvelopedVerifiableCredential)) {
+      return [
+        this.createInvalidCredentialEntryResult(new CredoError('Unsupported credential entry type in presentation.')),
+      ]
+    }
+
+    const enclosed = entry.envelopedCredential
+    let credentialResult: W3cV2VerifyCredentialResult
+
+    if (enclosed instanceof W3cV2JwtVerifiableCredential) {
+      credentialResult = await this.w3cV2JwtCredentialService.verifyCredential(agentContext, {
+        credential: enclosed,
+      } as W3cV2JwtVerifyCredentialOptions)
+    } else if (enclosed instanceof W3cV2SdJwtVerifiableCredential) {
+      credentialResult = await this.w3cV2SdJwtCredentialService.verifyCredential(agentContext, {
+        credential: enclosed,
+      } as W3cV2SdJwtVerifyCredentialOptions)
+    } else {
+      return [
+        this.createInvalidCredentialEntryResult(
+          new CredoError(
+            `Credential entry uses '${this.getClaimFormat(enclosed) ?? 'an unsupported enclosed credential format'}'.`
+          )
+        ),
+      ]
+    }
+
+    return [
+      this.mergeCredentialSubjectAuthenticationValidation(
+        credentialResult,
+        signerId,
+        entry.resolvedCredential.credentialSubjectIds
+      ),
+    ]
+  }
+
+  private async deriveSignerIdFromPresentation(
+    agentContext: AgentContext,
+    presentation: W3cV2JwtVerifiablePresentation | W3cV2SdJwtVerifiablePresentation
+  ): Promise<string | undefined> {
+    const holderId = presentation.resolvedPresentation.holderId
+    if (holderId) return holderId
+
+    try {
+      const verificationMethod = await getVerificationMethodForJwt(agentContext, presentation, ['authentication'])
+      return verificationMethod.controller
+    } catch {
+      return undefined
+    }
+  }
+
+  private getDataIntegrityCredentialStubError() {
+    return new CredoError(
+      "Data Integrity format 'di_vc' is not yet implemented for W3C V2 credential verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
+    )
+  }
+
+  private createInvalidCredentialEntryResult(error: Error): W3cV2PresentationCredentialEntryResult {
+    return {
+      isValid: false,
+      error,
+      validations: {},
+    }
   }
 
   // TODO: replace this stub with DI component integration once vc/data-integrity-v1 and w3c-di are ported.
