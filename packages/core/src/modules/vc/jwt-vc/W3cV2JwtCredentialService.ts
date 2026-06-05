@@ -6,6 +6,7 @@ import { injectable } from '../../../plugins'
 import { asArray, JsonTransformer, MessageValidator, nowInSeconds } from '../../../utils'
 import { getPublicJwkFromVerificationMethod } from '../../dids/domain/key-type/keyDidMapping'
 import { extractKeyFromHolderBinding } from '../../sd-jwt-vc/utils'
+import { CREDENTIALS_CONTEXT_V2_URL } from '../constants'
 import type { W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models'
 import {
   extractHolderFromPresentationCredentials,
@@ -117,6 +118,18 @@ export class W3cV2JwtCredentialService {
 
         validationResults.validations.dataModel = validateVc2ContextBaseline(credential.resolvedCredential.context)
         if (!validationResults.validations.dataModel.isValid) {
+          return validationResults
+        }
+
+        const firstContext = Array.isArray(credential.resolvedCredential.context)
+          ? credential.resolvedCredential.context[0]
+          : credential.resolvedCredential.context
+        if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
+          validationResults.validations.dataModel = {
+            isValid: false,
+            error: new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`),
+          }
+
           return validationResults
         }
 
@@ -305,6 +318,13 @@ export class W3cV2JwtCredentialService {
         const contextValidationResult = validateVc2ContextBaseline(presentation.resolvedPresentation.context)
         if (!contextValidationResult.isValid) {
           throw contextValidationResult.error
+        }
+
+        const firstContext = Array.isArray(presentation.resolvedPresentation.context)
+          ? presentation.resolvedPresentation.context[0]
+          : presentation.resolvedPresentation.context
+        if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
+          throw new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`)
         }
 
         validationResults.presentation.validations.dataModel = {

@@ -3,12 +3,7 @@ import type { ValidationOptions } from 'class-validator'
 import { buildMessage, isString, isURL, ValidateBy } from 'class-validator'
 import { CredoError } from '../../error'
 import { isJsonObject } from '../../types'
-import {
-  CREDENTIALS_CONTEXT_V1_URL,
-  CREDENTIALS_CONTEXT_V2_URL,
-  VERIFIABLE_CREDENTIAL_TYPE,
-  VERIFIABLE_PRESENTATION_TYPE,
-} from './constants'
+import { CREDENTIALS_CONTEXT_V1_URL, VERIFIABLE_CREDENTIAL_TYPE, VERIFIABLE_PRESENTATION_TYPE } from './constants'
 
 export interface IsCredentialJsonLdContextValidationOptions extends ValidationOptions {
   /**
@@ -109,36 +104,8 @@ export interface ValidateVc2CredentialValidityPeriodOptions {
   now?: number
 }
 
-export interface ValidateVc2ContextBaselineOptions {
-  /**
-   * Overrides the baseline VC2 first-context requirement for specialized validation profiles.
-   *
-   * By default, baseline validation enforces VC Data Model 2.x semantics where the first
-   * top-level `@context` entry is `CREDENTIALS_CONTEXT_V2_URL`.
-   *
-   * This override exists so stricter or alternate profile validators can reuse baseline
-   * structural checks (ordered-set shape, non-empty, URL/object entries) without forcing
-   * that specific first-entry rule. One example is Data Integrity profile validation, which
-   * applies its own `knownContext` equality policy after baseline checks.
-   *
-   * Use this only in profile-specific validation layers; issuer/verifier VC2 baseline paths
-   * should rely on the default and remain spec-conformant.
-   */
-  requiredFirstContext?: string | null
-}
-
-export function validateVc2ContextBaseline(
-  context: unknown,
-  options: ValidateVc2ContextBaselineOptions = {}
-): ValidationResult {
-  const requiredFirstContext =
-    options.requiredFirstContext === undefined ? CREDENTIALS_CONTEXT_V2_URL : options.requiredFirstContext
-
-  const contextArray = Array.isArray(context)
-    ? context
-    : typeof context === 'string'
-      ? [context]
-      : undefined
+export function validateVc2ContextBaseline(context: unknown): ValidationResult {
+  const contextArray = Array.isArray(context) ? context : typeof context === 'string' ? [context] : undefined
 
   if (!contextArray) {
     return {
@@ -151,13 +118,6 @@ export function validateVc2ContextBaseline(
     return {
       isValid: false,
       error: new CredoError('VC2 @context must not be empty'),
-    }
-  }
-
-  if (requiredFirstContext && contextArray[0] !== requiredFirstContext) {
-    return {
-      isValid: false,
-      error: new CredoError(`VC2 @context must start with '${requiredFirstContext}'`),
     }
   }
 

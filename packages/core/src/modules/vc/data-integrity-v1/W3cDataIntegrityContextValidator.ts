@@ -13,7 +13,6 @@ import { DEFAULT_CONTEXTS, DI_SPEC_CONTEXT_HASHES } from '../jsonld/contexts'
 import type { DocumentLoader } from '../jsonld/jsonld'
 import jsonld from '../jsonld/jsonld'
 import { getNativeDocumentLoader } from '../jsonld/nativeDocumentLoader'
-import { validateVc2ContextBaseline } from '../validators'
 
 /**
  * Output of the VC Data Integrity §4.6 Context Validation algorithm.
@@ -72,14 +71,13 @@ export class W3cDataIntegrityContextValidator {
     // §4.6, step 2: get contextValue
     const contextValue = normaliseContext(validatedDocument['@context'])
 
-    const baselineContextValidation = validateVc2ContextBaseline(validatedDocument['@context'], {
-      requiredFirstContext: null,
-    })
-    if (!baselineContextValidation.isValid) {
+    // §2.4.2 Context Injection: context injection is only for securing, not verification.
+    // A conforming verifier MUST NOT accept a document without top-level @context.
+    if (validatedDocument['@context'] === undefined || validatedDocument['@context'] === null) {
       result.errors.push(
         createProofVerificationIssue(
-          'Baseline VC2 @context validation failed',
-          baselineContextValidation.error?.message ?? 'VC2 baseline context validation failed'
+          'Missing top-level @context in secured document',
+          'Verification must not perform context injection (§2.4.2). Document must have explicit @context.'
         )
       )
       result.validated = false

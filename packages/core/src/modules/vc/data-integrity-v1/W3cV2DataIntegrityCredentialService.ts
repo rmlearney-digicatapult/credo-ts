@@ -1,7 +1,7 @@
 import type { AgentContext } from '../../../agent/context'
 import { CredoError } from '../../../error'
 import { injectable } from '../../../plugins'
-import { asArray, JsonTransformer } from '../../../utils'
+import { asArray, JsonTransformer, MessageValidator } from '../../../utils'
 import {
   createW3cDataIntegrityCredoError as createDataIntegrityCredoError,
   type W3cDataIntegrityIssueList as DataIntegrityIssueList,
@@ -9,8 +9,10 @@ import {
 } from '../../w3c-di/internal'
 import { CREDENTIALS_CONTEXT_V2_URL } from '../constants'
 import { ClaimFormat } from '../models/ClaimFormat'
+import { W3cV2Credential } from '../models/credential/W3cV2Credential'
 import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import type { W3cV2VerifiableCredential } from '../models/credential/W3cV2VerifiableCredential'
+import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 import type { W3cV2VerifiablePresentation } from '../models/presentation/W3cV2VerifiablePresentation'
 import type { W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models/W3cV2VerifyResult'
 import { validateVc2ContextBaseline } from '../validators'
@@ -48,9 +50,18 @@ export class W3cV2DataIntegrityCredentialService {
       unsecuredCredential['@context'] = [CREDENTIALS_CONTEXT_V2_URL]
     }
 
+    MessageValidator.validateSync(JsonTransformer.fromJSON(unsecuredCredential, W3cV2Credential, { validate: false }))
+
     const contextValidation = validateVc2ContextBaseline(unsecuredCredential['@context'])
     if (!contextValidation.isValid) {
       throw contextValidation.error ?? new CredoError('VC2 credential @context validation failed')
+    }
+
+    const firstContext = Array.isArray(unsecuredCredential['@context'])
+      ? unsecuredCredential['@context'][0]
+      : unsecuredCredential['@context']
+    if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
+      throw new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`)
     }
 
     const proofResult = await this.dataIntegrityProofService.createProof(agentContext, {
@@ -121,9 +132,20 @@ export class W3cV2DataIntegrityCredentialService {
       unsecuredPresentation['@context'] = [CREDENTIALS_CONTEXT_V2_URL]
     }
 
+    MessageValidator.validateSync(
+      JsonTransformer.fromJSON(unsecuredPresentation, W3cV2Presentation, { validate: false })
+    )
+
     const contextValidation = validateVc2ContextBaseline(unsecuredPresentation['@context'])
     if (!contextValidation.isValid) {
       throw contextValidation.error ?? new CredoError('VC2 presentation @context validation failed')
+    }
+
+    const firstContext = Array.isArray(unsecuredPresentation['@context'])
+      ? unsecuredPresentation['@context'][0]
+      : unsecuredPresentation['@context']
+    if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
+      throw new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`)
     }
 
     const proofResult = await this.dataIntegrityProofService.createProof(agentContext, {

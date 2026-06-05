@@ -13,6 +13,7 @@ import {
   getSdJwtVerifier,
   parseHolderBindingFromCredential,
 } from '../../sd-jwt-vc/utils'
+import { CREDENTIALS_CONTEXT_V2_URL } from '../constants'
 import type {
   W3cV2JsonCredential,
   W3cV2JsonPresentation,
@@ -142,6 +143,18 @@ export class W3cV2SdJwtCredentialService {
 
         validationResults.validations.dataModel = validateVc2ContextBaseline(credential.resolvedCredential.context)
         if (!validationResults.validations.dataModel.isValid) {
+          return validationResults
+        }
+
+        const firstContext = Array.isArray(credential.resolvedCredential.context)
+          ? credential.resolvedCredential.context[0]
+          : credential.resolvedCredential.context
+        if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
+          validationResults.validations.dataModel = {
+            isValid: false,
+            error: new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`),
+          }
+
           return validationResults
         }
 
@@ -308,6 +321,13 @@ export class W3cV2SdJwtCredentialService {
         const contextValidationResult = validateVc2ContextBaseline(presentation.resolvedPresentation.context)
         if (!contextValidationResult.isValid) {
           throw contextValidationResult.error
+        }
+
+        const firstContext = Array.isArray(presentation.resolvedPresentation.context)
+          ? presentation.resolvedPresentation.context[0]
+          : presentation.resolvedPresentation.context
+        if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
+          throw new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`)
         }
 
         validationResults.presentation.validations.dataModel = {
