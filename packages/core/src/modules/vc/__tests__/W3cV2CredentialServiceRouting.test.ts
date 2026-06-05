@@ -58,6 +58,7 @@ describe('W3cV2CredentialService routing and stub guards', () => {
         format: ClaimFormat.DiVc,
         credential: {} as never,
         verificationMethod: 'did:example:issuer#key-1',
+        cryptosuite: 'eddsa-jcs-2022',
       })
     ).rejects.toThrow(CredoError)
 
@@ -66,6 +67,7 @@ describe('W3cV2CredentialService routing and stub guards', () => {
         format: ClaimFormat.DiVc,
         credential: {} as never,
         verificationMethod: 'did:example:issuer#key-1',
+        cryptosuite: 'eddsa-jcs-2022',
       })
     ).rejects.toThrow("Data Integrity format 'di_vc' is not supported")
   })
@@ -109,6 +111,8 @@ describe('W3cV2CredentialService routing and stub guards', () => {
         format: ClaimFormat.DiVp,
         presentation: {} as never,
         challenge: 'challenge-123',
+        verificationMethod: 'did:example:holder#key-1',
+        cryptosuite: 'eddsa-jcs-2022',
       })
     ).rejects.toThrow("Data Integrity format 'di_vp' is not supported")
   })
