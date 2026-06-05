@@ -1,4 +1,5 @@
 import { CredoError } from '../../../error'
+import { W3cV2DataIntegrityVerifiablePresentation } from '../data-integrity-v1'
 import { W3cV2JwtVerifiablePresentation } from '../jwt-vc'
 import { CredoEs256DidJwkJwtVc, CredoEs256DidKeyJwtVp } from '../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
 import { W3cV2JwtVerifiableCredential } from '../jwt-vc/W3cV2JwtVerifiableCredential'
@@ -69,12 +70,13 @@ describe('W3cV2CredentialService routing and stub guards', () => {
     ).rejects.toThrow("Data Integrity format 'di_vc' is not supported")
   })
 
-  test('verifyCredential rejects di_vc via stub hook', async () => {
-    await expect(
-      service.verifyCredential(agentContext, {
-        credential: { claimFormat: ClaimFormat.DiVc },
-      } as never)
-    ).rejects.toThrow("Data Integrity format 'di_vc' is not supported")
+  test('verifyCredential reports invalid di_vc result via stub hook', async () => {
+    const result = await service.verifyCredential(agentContext, {
+      credential: { claimFormat: ClaimFormat.DiVc },
+    } as never)
+
+    expect(result.isValid).toBe(false)
+    expect(result.error?.message).toContain("Data Integrity format 'di_vc' is not yet implemented")
   })
 
   test('verifyCredential normalizes compact JWT VC strings before routing', async () => {
@@ -111,13 +113,50 @@ describe('W3cV2CredentialService routing and stub guards', () => {
     ).rejects.toThrow("Data Integrity format 'di_vp' is not supported")
   })
 
-  test('verifyPresentation rejects di_vp via stub hook', async () => {
-    await expect(
-      service.verifyPresentation(agentContext, {
-        presentation: { claimFormat: ClaimFormat.DiVp },
-        challenge: 'challenge-123',
-      } as never)
-    ).rejects.toThrow("Data Integrity format 'di_vp' is not supported")
+  test('verifyPresentation reports invalid di_vp result via stub hook', async () => {
+    const result = await service.verifyPresentation(agentContext, {
+      presentation: { claimFormat: ClaimFormat.DiVp },
+      challenge: 'challenge-123',
+    } as never)
+
+    expect(result.isValid).toBe(false)
+    expect(result.presentation.isValid).toBe(false)
+    expect(result.presentation.error?.message).toContain("Data Integrity format 'di_vp' is not yet implemented")
+    expect(result.credentialEntries).toEqual([])
+  })
+
+  test('verifyPresentation routes DI outer VP through explicit invalid-result stub and still verifies enclosed entries', async () => {
+    const nonDiCredentialEntries = [
+      mixedVpBaseResolvedPresentation.verifiableCredential[0],
+      mixedVpBaseResolvedPresentation.verifiableCredential[1],
+    ]
+
+    const diOuterVp = W3cV2DataIntegrityVerifiablePresentation.fromObject({
+      ...mixedVpBaseResolvedPresentation,
+      verifiableCredential: nonDiCredentialEntries,
+      proof: {
+        type: 'DataIntegrityProof',
+      },
+    })
+
+    jwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+    sdJwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    const result = await service.verifyPresentation(agentContext, {
+      presentation: diOuterVp,
+      challenge: 'challenge-123',
+    } as never)
+
+    expect(jwtService.verifyPresentation).not.toHaveBeenCalled()
+    expect(sdJwtService.verifyPresentation).not.toHaveBeenCalled()
+    expect(jwtService.verifyCredential).toHaveBeenCalledTimes(1)
+    expect(sdJwtService.verifyCredential).toHaveBeenCalledTimes(1)
+    expect(result.presentation.isValid).toBe(false)
+    expect(result.presentation.error?.message).toContain("Data Integrity format 'di_vp' is not yet implemented")
+    expect(result.credentialEntries).toHaveLength(2)
+    expect(result.credentialEntries[0]?.isValid).toBe(true)
+    expect(result.credentialEntries[1]?.isValid).toBe(true)
+    expect(result.isValid).toBe(false)
   })
 
   test('non-DI signCredential routes to jwt service unchanged', async () => {

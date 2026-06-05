@@ -117,7 +117,7 @@ export class W3cV2CredentialService {
     }
 
     if (this.getClaimFormat(credential) === ClaimFormat.DiVc) {
-      this.throwDataIntegrityStubError('verifyCredential', ClaimFormat.DiVc, options as W3cV2DiVerifyCredentialOptions)
+      return this.createInvalidVerifyCredentialResult(this.getDataIntegrityCredentialStubError())
     }
 
     throw new CredoError(
@@ -163,7 +163,8 @@ export class W3cV2CredentialService {
    * Current support and constraints:
    * - Compact string presentations are accepted for `vp+jwt` and `vp+sd-jwt` and normalized
    *   to typed presentation instances before routing.
-   * - `di_vp` is currently stubbed and rejected with a dedicated DI stub error.
+   * - `di_vp` currently routes through a dedicated DI outer-VP branch that returns
+   *   an explicit invalid VP-level result (stub) and still traverses enclosed entries.
    * - `di_vc` entries are currently stubbed and returned as explicit invalid entry results.
    * - Nested VP entries are traversed recursively when represented as EnvelopedVerifiablePresentation.
    *
@@ -186,20 +187,18 @@ export class W3cV2CredentialService {
         ? decodeW3cV2VerifiablePresentation(options.presentation)
         : options.presentation
 
-    if (presentation instanceof W3cV2DataIntegrityVerifiablePresentation) {
-      this.throwDataIntegrityStubError(
-        'verifyPresentation',
-        ClaimFormat.DiVp,
-        options as W3cV2DiVerifyPresentationOptions
-      )
-    }
-
     if (this.getClaimFormat(presentation) === ClaimFormat.DiVp) {
-      this.throwDataIntegrityStubError(
-        'verifyPresentation',
-        ClaimFormat.DiVp,
-        options as W3cV2DiVerifyPresentationOptions
-      )
+      if (!(presentation instanceof W3cV2DataIntegrityVerifiablePresentation)) {
+        return {
+          isValid: false,
+          presentation: this.createInvalidPresentationResult(
+            new CredoError(
+              "Data Integrity format 'di_vp' is not yet implemented for W3C V2 presentation verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
+            )
+          ),
+          credentialEntries: [],
+        }
+      }
     }
 
     const validationResults: W3cV2VerifyPresentationResult = {
@@ -265,9 +264,23 @@ export class W3cV2CredentialService {
         }
       }
       entries = asArray(presentation.resolvedPresentation.verifiableCredential)
+    } else if (presentation instanceof W3cV2DataIntegrityVerifiablePresentation) {
+      validationResults.presentation = this.createInvalidPresentationResult(
+        new CredoError(
+          "Data Integrity format 'di_vp' is not yet implemented for W3C V2 presentation verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
+        )
+      )
+
+      signerId = presentation.resolvedPresentation.holderId
+      if (!signerId) {
+        validationResults.isValid = false
+        return validationResults
+      }
+
+      entries = asArray(presentation.resolvedPresentation.verifiableCredential)
     } else {
       throw new CredoError(
-        'Unsupported credential type in options. Presentation must be either a W3cV2JwtVerifiablePresentation or a W3cV2SdJwtVerifiablePresentation'
+        'Unsupported credential type in options. Presentation must be either a W3cV2JwtVerifiablePresentation, a W3cV2SdJwtVerifiablePresentation, or a W3cV2DataIntegrityVerifiablePresentation'
       )
     }
 
@@ -412,6 +425,22 @@ export class W3cV2CredentialService {
   }
 
   private createInvalidCredentialEntryResult(error: Error): W3cV2PresentationCredentialEntryResult {
+    return {
+      isValid: false,
+      error,
+      validations: {},
+    }
+  }
+
+  private createInvalidVerifyCredentialResult(error: Error): W3cV2VerifyCredentialResult {
+    return {
+      isValid: false,
+      error,
+      validations: {},
+    }
+  }
+
+  private createInvalidPresentationResult(error: Error): W3cV2VerifyPresentationResult['presentation'] {
     return {
       isValid: false,
       error,
