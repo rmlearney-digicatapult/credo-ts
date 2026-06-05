@@ -1,6 +1,7 @@
 import type { ValidationOptions } from 'class-validator'
 
 import { buildMessage, isString, isURL, ValidateBy } from 'class-validator'
+import { CredoError } from '../../error'
 import { isJsonObject } from '../../types'
 import { CREDENTIALS_CONTEXT_V1_URL, VERIFIABLE_CREDENTIAL_TYPE, VERIFIABLE_PRESENTATION_TYPE } from './constants'
 
@@ -89,4 +90,72 @@ export function IsVerifiablePresentationType(validationOptions?: ValidationOptio
     },
     validationOptions
   )
+}
+
+export interface ValidationResult {
+  isValid: boolean
+  error?: Error
+}
+
+export interface ValidateVc2CredentialValidityPeriodOptions {
+  validFrom?: string
+  validUntil?: string
+  skewSeconds: number
+  now?: number
+}
+
+export function validateVc2CredentialStatus(options: {
+  credentialStatus?: unknown
+  credentialFormat: 'JWT' | 'SD-JWT'
+}): ValidationResult {
+  if (!options.credentialStatus) {
+    return {
+      isValid: true,
+    }
+  }
+
+  return {
+    isValid: false,
+    error: new CredoError(
+      `Verifying credential status is not supported for W3C VC2 ${options.credentialFormat} credentials`
+    ),
+  }
+}
+
+export function validateVc2CredentialValidityPeriod(
+  options: ValidateVc2CredentialValidityPeriodOptions
+): ValidationResult {
+  const now = options.now ?? Math.floor(Date.now() / 1000)
+
+  const validFromTimestamp = options.validFrom ? Math.floor(Date.parse(options.validFrom) / 1000) : undefined
+  const validUntilTimestamp = options.validUntil ? Math.floor(Date.parse(options.validUntil) / 1000) : undefined
+
+  if (
+    validFromTimestamp !== undefined &&
+    validUntilTimestamp !== undefined &&
+    validFromTimestamp > validUntilTimestamp
+  ) {
+    return {
+      isValid: false,
+      error: new CredoError('Credential validFrom must be temporally equal to or before validUntil'),
+    }
+  }
+
+  if (validFromTimestamp !== undefined && validFromTimestamp - options.skewSeconds > now) {
+    return {
+      isValid: false,
+      error: new CredoError('Credential is not valid yet based on validFrom'),
+    }
+  }
+
+  if (validUntilTimestamp !== undefined && validUntilTimestamp + options.skewSeconds < now) {
+    return {
+      isValid: false,
+      error: new CredoError('Credential is no longer valid based on validUntil'),
+    }
+  }
+
+  return {
+    isValid: true,
+  }
 }

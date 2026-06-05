@@ -20,7 +20,13 @@ import { DidJwk, DidKey, DidRepository, DidsApi, DidsModuleConfig } from '../../
 import { KeyManagementApi, KnownJwaSignatureAlgorithms, PublicJwk } from '../../../kms'
 import { X509ModuleConfig } from '../../../x509'
 import { CREDENTIALS_CONTEXT_V2_URL } from '../../constants'
-import { ClaimFormat, W3cV2Credential, W3cV2EnvelopedVerifiableCredential, W3cV2Presentation } from '../../models'
+import {
+  ClaimFormat,
+  W3cV2Credential,
+  W3cV2CredentialStatus,
+  W3cV2EnvelopedVerifiableCredential,
+  W3cV2Presentation,
+} from '../../models'
 import { W3cV2SdJwtCredentialService } from '../W3cV2SdJwtCredentialService'
 import { W3cV2SdJwtVerifiableCredential } from '../W3cV2SdJwtVerifiableCredential'
 import { W3cV2SdJwtVerifiablePresentation } from '../W3cV2SdJwtVerifiablePresentation'
@@ -265,8 +271,14 @@ describe('W3cV2SdJwtCredentialService', () => {
           dataModel: {
             isValid: true,
           },
+          validityPeriod: {
+            isValid: true,
+          },
           // This validates whether the signature is valid
           signature: {
+            isValid: true,
+          },
+          credentialStatus: {
             isValid: true,
           },
           // This validates whether the issuer is also the signer of the credential
@@ -343,6 +355,45 @@ describe('W3cV2SdJwtCredentialService', () => {
       })
 
       expect(result.validations.dataModel?.error?.message).toContain('JWT expired at 1577836800')
+    })
+
+    test('returns invalid result when credentialStatus is present', async () => {
+      const jwtVc = W3cV2SdJwtVerifiableCredential.fromCompact(CredoEs256DidJwkJwtVc)
+
+      jwtVc.resolvedCredential.credentialStatus = new W3cV2CredentialStatus({
+        id: 'https://example.com/status/1',
+        type: 'StatusList2021Entry',
+      })
+
+      const result = await w3cV2JwtCredentialService.verifyCredential(agentContext, {
+        credential: jwtVc,
+      })
+
+      expect(result.isValid).toBe(false)
+      expect(result.validations.credentialStatus).toMatchObject({
+        isValid: false,
+      })
+      expect(result.validations.credentialStatus?.error?.message).toContain(
+        'Verifying credential status is not supported'
+      )
+    })
+
+    test('returns invalid result when credential is not yet valid based on validFrom', async () => {
+      const jwtVc = W3cV2SdJwtVerifiableCredential.fromCompact(CredoEs256DidJwkJwtVc)
+
+      jwtVc.resolvedCredential.validFrom = '2999-01-01T00:00:00Z'
+
+      const result = await w3cV2JwtCredentialService.verifyCredential(agentContext, {
+        credential: jwtVc,
+      })
+
+      expect(result.isValid).toBe(false)
+      expect(result.validations.validityPeriod).toMatchObject({
+        isValid: false,
+      })
+      expect(result.validations.validityPeriod?.error?.message).toContain(
+        'Credential is not valid yet based on validFrom'
+      )
     })
   })
 

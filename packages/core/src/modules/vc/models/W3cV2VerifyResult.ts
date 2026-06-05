@@ -48,16 +48,27 @@ interface W3cV2VerifyResult<Validations> {
 
 interface W3cV2CredentialValidations {
   /**
-   * Validation that validates whether the credential conforms
-   * to the data model and is currently valid (not expired or
-   * issued in the future).
+   * Validate whether the credential conforms
+   * to the data model and JWT-level temporal claims.
    */
   dataModel: SingleValidationResult
+
+  /**
+   * Validation that evaluates VC2 `validFrom`/`validUntil`
+   * semantics from the credential body.
+   */
+  validityPeriod: SingleValidationResult
 
   /**
    * Whether the signature of the credential is valid
    */
   signature: SingleValidationResult
+
+  /**
+   * Whether the credential status can be treated as valid under
+   * currently-supported VC2 status verification behavior.
+   */
+  credentialStatus: SingleValidationResult
 
   /**
    * Whether the 'issuer' of the credential is also the

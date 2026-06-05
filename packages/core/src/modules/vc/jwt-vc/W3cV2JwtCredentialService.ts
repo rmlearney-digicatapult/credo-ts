@@ -12,6 +12,7 @@ import {
   getVerificationMethodForJwt,
   validateAndResolveVerificationMethod,
 } from '../v2-jwt-utils'
+import { validateVc2CredentialStatus, validateVc2CredentialValidityPeriod } from '../validators'
 import type {
   W3cV2JwtSignCredentialOptions,
   W3cV2JwtSignPresentationOptions,
@@ -113,6 +114,17 @@ export class W3cV2JwtCredentialService {
         validationResults.validations.dataModel = {
           isValid: true,
         }
+
+        validationResults.validations.validityPeriod = validateVc2CredentialValidityPeriod({
+          validFrom: credential.resolvedCredential.validFrom,
+          validUntil: credential.resolvedCredential.validUntil,
+          skewSeconds: agentContext.config.validitySkewSeconds,
+        })
+
+        validationResults.validations.credentialStatus = validateVc2CredentialStatus({
+          credentialStatus: credential.resolvedCredential.credentialStatus,
+          credentialFormat: 'JWT',
+        })
       } catch (error) {
         validationResults.validations.dataModel = {
           isValid: false,
