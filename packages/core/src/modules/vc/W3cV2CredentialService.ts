@@ -288,27 +288,21 @@ export class W3cV2CredentialService {
     }
 
     // Phase 2: walk enclosed credential entries and verify recursively by entry format.
-    validationResults.credentialEntries = await this.verifyPresentationEntries(agentContext, entries, signerId, {
-      challenge: options.challenge,
-      domain: options.domain,
-    })
+    validationResults.credentialEntries = (
+      await Promise.all(
+        entries.map((entry) =>
+          this.verifyPresentationEntry(agentContext, entry, signerId, {
+            challenge: options.challenge,
+            domain: options.domain,
+          })
+        )
+      )
+    ).flat()
 
     validationResults.isValid =
       validationResults.presentation.isValid && validationResults.credentialEntries.every((entry) => entry.isValid)
 
     return validationResults
-  }
-
-  private async verifyPresentationEntries(
-    agentContext: AgentContext,
-    entries: W3cV2PresentationCredentialEntry[],
-    signerId: string,
-    presentationContext: VerifyPresentationRequestContext
-  ): Promise<W3cV2PresentationCredentialEntryResult[]> {
-    const nestedResults = await Promise.all(
-      entries.map((entry) => this.verifyPresentationEntry(agentContext, entry, signerId, presentationContext))
-    )
-    return nestedResults.flat()
   }
 
   private async verifyPresentationEntry(
@@ -372,12 +366,13 @@ export class W3cV2CredentialService {
         ]
       }
 
-      return this.verifyPresentationEntries(
-        agentContext,
-        asArray(nestedPresentation.resolvedPresentation.verifiableCredential),
-        nestedSignerId,
-        presentationContext
-      )
+      return (
+        await Promise.all(
+          asArray(nestedPresentation.resolvedPresentation.verifiableCredential).map((nestedEntry) =>
+            this.verifyPresentationEntry(agentContext, nestedEntry, nestedSignerId, presentationContext)
+          )
+        )
+      ).flat()
     }
 
     if (!(entry instanceof W3cV2EnvelopedVerifiableCredential)) {
