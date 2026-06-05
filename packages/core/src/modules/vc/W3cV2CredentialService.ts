@@ -4,8 +4,7 @@ import { injectable } from '../../plugins'
 import type { Query, QueryOptions } from '../../storage/StorageService'
 import { asArray } from '../../utils/array'
 import {
-  mapDataIntegrityIssuesToCredoError,
-  type W3cV2DataIntegrityIssue,
+  W3cV2DataIntegrityCredentialService,
   W3cV2DataIntegrityVerifiableCredential,
   W3cV2DataIntegrityVerifiablePresentation,
 } from './data-integrity-v1'
@@ -57,15 +56,18 @@ export class W3cV2CredentialService {
   private w3cV2CredentialRepository: W3cV2CredentialRepository
   private w3cV2SdJwtCredentialService: W3cV2SdJwtCredentialService
   private w3cV2JwtCredentialService: W3cV2JwtCredentialService
+  private w3cV2DataIntegrityCredentialService: W3cV2DataIntegrityCredentialService
 
   public constructor(
     w3cV2CredentialRepository: W3cV2CredentialRepository,
     w3cV2SdJwtCredentialService: W3cV2SdJwtCredentialService,
-    w3cV2JwtCredentialService: W3cV2JwtCredentialService
+    w3cV2JwtCredentialService: W3cV2JwtCredentialService,
+    w3cV2DataIntegrityCredentialService: W3cV2DataIntegrityCredentialService
   ) {
     this.w3cV2CredentialRepository = w3cV2CredentialRepository
     this.w3cV2SdJwtCredentialService = w3cV2SdJwtCredentialService
     this.w3cV2JwtCredentialService = w3cV2JwtCredentialService
+    this.w3cV2DataIntegrityCredentialService = w3cV2DataIntegrityCredentialService
   }
 
   /**
@@ -87,7 +89,11 @@ export class W3cV2CredentialService {
       return signed as W3cV2VerifiableCredential<Format>
     }
     if (options.format === ClaimFormat.DiVc) {
-      this.throwDataIntegrityStubError('signCredential', ClaimFormat.DiVc, options as W3cV2DiSignCredentialOptions)
+      const signed = await this.w3cV2DataIntegrityCredentialService.signCredential(
+        agentContext,
+        options as W3cV2DiSignCredentialOptions
+      )
+      return signed as W3cV2VerifiableCredential<Format>
     }
     throw new CredoError(`Unsupported format in options. Format must be either 'vc+jwt', 'vc+sd-jwt', or 'di_vc'`)
   }
@@ -116,12 +122,15 @@ export class W3cV2CredentialService {
       } as W3cV2SdJwtVerifyCredentialOptions)
     }
 
-    if (this.getClaimFormat(credential) === ClaimFormat.DiVc) {
-      return this.createInvalidVerifyCredentialResult(this.getDataIntegrityCredentialStubError())
+    if (credential instanceof W3cV2DataIntegrityVerifiableCredential) {
+      return this.w3cV2DataIntegrityCredentialService.verifyCredential(agentContext, {
+        ...options,
+        credential,
+      } as W3cV2DiVerifyCredentialOptions)
     }
 
     throw new CredoError(
-      'Unsupported credential type in options. Credential must be either a W3cV2JwtVerifiablePresentation or a W3cV2SdJwtVerifiablePresentation'
+      'Unsupported credential type in options. Credential must be either a W3cV2JwtVerifiableCredential, a W3cV2SdJwtVerifiableCredential, or a W3cV2DataIntegrityVerifiableCredential'
     )
   }
 
@@ -144,7 +153,11 @@ export class W3cV2CredentialService {
       return signed as W3cV2VerifiablePresentation<Format>
     }
     if (options.format === ClaimFormat.DiVp) {
-      this.throwDataIntegrityStubError('signPresentation', ClaimFormat.DiVp, options as W3cV2DiSignPresentationOptions)
+      const signed = await this.w3cV2DataIntegrityCredentialService.signPresentation(
+        agentContext,
+        options as W3cV2DiSignPresentationOptions
+      )
+      return signed as W3cV2VerifiablePresentation<Format>
     }
     throw new CredoError(`Unsupported format in options. Format must be either 'vp+jwt', 'vp+sd-jwt', or 'di_vp'`)
   }
@@ -163,9 +176,8 @@ export class W3cV2CredentialService {
    * Current support and constraints:
    * - Compact string presentations are accepted for `vp+jwt` and `vp+sd-jwt` and normalized
    *   to typed presentation instances before routing.
-   * - `di_vp` currently routes through a dedicated DI outer-VP branch that returns
-   *   an explicit invalid VP-level result (stub) and still traverses enclosed entries.
-   * - `di_vc` entries are currently stubbed and returned as explicit invalid entry results.
+   * - `di_vp` routes through the DI credential service for outer-VP verification.
+   * - `di_vc` entries route through the DI credential service for entry verification.
    * - Nested VP entries are traversed recursively when represented as EnvelopedVerifiablePresentation.
    *
    * Return semantics:
@@ -186,20 +198,6 @@ export class W3cV2CredentialService {
       typeof options.presentation === 'string'
         ? decodeW3cV2VerifiablePresentation(options.presentation)
         : options.presentation
-
-    if (this.getClaimFormat(presentation) === ClaimFormat.DiVp) {
-      if (!(presentation instanceof W3cV2DataIntegrityVerifiablePresentation)) {
-        return {
-          isValid: false,
-          presentation: this.createInvalidPresentationResult(
-            new CredoError(
-              "Data Integrity format 'di_vp' is not yet implemented for W3C V2 presentation verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
-            )
-          ),
-          credentialEntries: [],
-        }
-      }
-    }
 
     const validationResults: W3cV2VerifyPresentationResult = {
       isValid: false,
@@ -265,11 +263,16 @@ export class W3cV2CredentialService {
       }
       entries = asArray(presentation.resolvedPresentation.verifiableCredential)
     } else if (presentation instanceof W3cV2DataIntegrityVerifiablePresentation) {
-      validationResults.presentation = this.createInvalidPresentationResult(
-        new CredoError(
-          "Data Integrity format 'di_vp' is not yet implemented for W3C V2 presentation verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
-        )
-      )
+      const presentationResult = await this.w3cV2DataIntegrityCredentialService.verifyPresentation(agentContext, {
+        ...options,
+        presentation,
+      } as W3cV2DiVerifyPresentationOptions)
+      validationResults.presentation = presentationResult.presentation
+
+      if (!presentationResult.presentation.isValid) {
+        validationResults.isValid = false
+        return validationResults
+      }
 
       signerId = presentation.resolvedPresentation.holderId
       if (!signerId) {
@@ -315,7 +318,17 @@ export class W3cV2CredentialService {
     presentationContext: VerifyPresentationRequestContext
   ): Promise<W3cV2PresentationCredentialEntryResult[]> {
     if (entry instanceof W3cV2DataIntegrityVerifiableCredential) {
-      return [this.createInvalidCredentialEntryResult(this.getDataIntegrityCredentialStubError())]
+      const credentialResult = await this.w3cV2DataIntegrityCredentialService.verifyCredential(agentContext, {
+        credential: entry,
+      } as W3cV2DiVerifyCredentialOptions)
+
+      return [
+        this.mergeCredentialSubjectAuthenticationValidation(
+          credentialResult,
+          signerId,
+          entry.resolvedCredential?.credentialSubjectIds ?? []
+        ),
+      ]
     }
 
     if (entry instanceof W3cV2EnvelopedVerifiablePresentation) {
@@ -418,58 +431,12 @@ export class W3cV2CredentialService {
     }
   }
 
-  private getDataIntegrityCredentialStubError() {
-    return new CredoError(
-      "Data Integrity format 'di_vc' is not yet implemented for W3C V2 credential verification. Support is currently limited to parsing/modeling and explicit unsupported-result signaling."
-    )
-  }
-
   private createInvalidCredentialEntryResult(error: Error): W3cV2PresentationCredentialEntryResult {
     return {
       isValid: false,
       error,
       validations: {},
     }
-  }
-
-  private createInvalidVerifyCredentialResult(error: Error): W3cV2VerifyCredentialResult {
-    return {
-      isValid: false,
-      error,
-      validations: {},
-    }
-  }
-
-  private createInvalidPresentationResult(error: Error): W3cV2VerifyPresentationResult['presentation'] {
-    return {
-      isValid: false,
-      error,
-      validations: {},
-    }
-  }
-
-  // TODO: replace this stub with DI component integration once vc/data-integrity-v1 and w3c-di are ported.
-  private throwDataIntegrityStubError(
-    operation: 'signCredential' | 'verifyCredential' | 'signPresentation' | 'verifyPresentation',
-    claimFormat: ClaimFormat.DiVc | ClaimFormat.DiVp,
-    _options:
-      | W3cV2DiSignCredentialOptions
-      | W3cV2DiVerifyCredentialOptions
-      | W3cV2DiSignPresentationOptions
-      | W3cV2DiVerifyPresentationOptions,
-    issues?: W3cV2DataIntegrityIssue[]
-  ): never {
-    const cause = mapDataIntegrityIssuesToCredoError({
-      operation,
-      claimFormat,
-      issues,
-    })
-
-    throw new CredoError(
-      `Data Integrity format '${claimFormat}' is not supported by ${operation} on this branch. ` +
-        `Only DI stubs are present in chore/vc2-spec-alignment pending a dedicated DI port.`,
-      { cause }
-    )
   }
 
   private getClaimFormat(value: unknown): string | undefined {
