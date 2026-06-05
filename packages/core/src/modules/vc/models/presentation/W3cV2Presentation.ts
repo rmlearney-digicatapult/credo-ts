@@ -35,7 +35,7 @@ export interface W3cV2PresentationOptions {
   id?: string
   context?: Array<string | JsonObject>
   type?: SingleOrArray<string>
-  verifiableCredential: SingleOrArray<W3cV2PresentationCredentialEntryOptions>
+  verifiableCredential?: SingleOrArray<W3cV2PresentationCredentialEntryOptions>
   holder?: string | W3cV2HolderOptions
 }
 
@@ -45,25 +45,27 @@ export class W3cV2Presentation {
       this.id = options.id
       this.context = options.context ?? [CREDENTIALS_CONTEXT_V2_URL]
       this.type = options.type ?? [VERIFIABLE_PRESENTATION_TYPE]
-      this.verifiableCredential = mapSingleOrArray(options.verifiableCredential, (entry) => {
-        if (
-          entry instanceof W3cV2EnvelopedVerifiableCredential ||
-          entry instanceof W3cV2EnvelopedVerifiablePresentation ||
-          entry instanceof W3cV2DataIntegrityVerifiableCredential
-        ) {
-          return entry
-        }
+      if (options.verifiableCredential) {
+        this.verifiableCredential = mapSingleOrArray(options.verifiableCredential, (entry) => {
+          if (
+            entry instanceof W3cV2EnvelopedVerifiableCredential ||
+            entry instanceof W3cV2EnvelopedVerifiablePresentation ||
+            entry instanceof W3cV2DataIntegrityVerifiableCredential
+          ) {
+            return entry
+          }
 
-        if (isEnvelopedVerifiablePresentationEntry(entry)) {
-          return new W3cV2EnvelopedVerifiablePresentation(entry)
-        }
+          if (isEnvelopedVerifiablePresentationEntry(entry)) {
+            return new W3cV2EnvelopedVerifiablePresentation(entry)
+          }
 
-        if (isEmbeddedDataIntegrityCredential(entry)) {
-          return W3cV2DataIntegrityVerifiableCredential.fromObject(entry)
-        }
+          if (isEmbeddedDataIntegrityCredential(entry)) {
+            return W3cV2DataIntegrityVerifiableCredential.fromObject(entry)
+          }
 
-        return new W3cV2EnvelopedVerifiableCredential(entry as W3cV2EnvelopedVerifiableCredentialOptions)
-      })
+          return new W3cV2EnvelopedVerifiableCredential(entry as W3cV2EnvelopedVerifiableCredentialOptions)
+        })
+      }
 
       if (options.holder) {
         this.holder = typeof options.holder === 'string' ? options.holder : new W3cV2Holder(options.holder)
@@ -88,6 +90,7 @@ export class W3cV2Presentation {
   public holder?: string | W3cV2Holder
 
   @W3cV2PresentationCredentialEntryTransformer()
+  @IsOptional()
   @IsInstanceOrArrayOfInstances({
     classType: [
       W3cV2EnvelopedVerifiableCredential,
@@ -96,7 +99,7 @@ export class W3cV2Presentation {
     ],
   })
   @ValidateNested({ each: true })
-  public verifiableCredential!: SingleOrArray<W3cV2PresentationCredentialEntry>
+  public verifiableCredential?: SingleOrArray<W3cV2PresentationCredentialEntry>
 
   @IsNever()
   public vc?: never

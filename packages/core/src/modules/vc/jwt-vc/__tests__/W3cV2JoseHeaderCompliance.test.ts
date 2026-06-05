@@ -26,6 +26,57 @@ describe('W3cV2 JOSE header and data model compliance', () => {
     expect(() => W3cV2JwtVerifiableCredential.fromCompact(compact)).not.toThrow()
   })
 
+  test('accepts vp+jwt when typ and cty headers are absent', () => {
+    const compact = rewriteCompactJoseHeader(CredoEs256DidKeyJwtVpJwt, (header) => {
+      const { typ: _typ, cty: _cty, ...rest } = header
+      return rest
+    })
+
+    expect(() => W3cV2JwtVerifiablePresentation.fromCompact(compact)).not.toThrow()
+  })
+
+  test('accepts vc+sd-jwt when typ and cty headers are absent', () => {
+    const compact = rewriteSdJwtJoseHeader(CredoEs256DidJwkJwtVcSdJwt, (header) => {
+      const { typ: _typ, cty: _cty, ...rest } = header
+      return rest
+    })
+
+    expect(() => W3cV2SdJwtVerifiableCredential.fromCompact(compact)).not.toThrow()
+  })
+
+  test('accepts vp+sd-jwt when typ and cty headers are absent', () => {
+    const compact = rewriteSdJwtJoseHeader(CredoEs256DidKeyJwtVpSdJwt, (header) => {
+      const { typ: _typ, cty: _cty, ...rest } = header
+      return rest
+    })
+
+    expect(() => W3cV2SdJwtVerifiablePresentation.fromCompact(compact)).not.toThrow()
+  })
+
+  test('rejects vc+jwt when alg is none', () => {
+    const compact = rewriteCompactJoseHeader(CredoEs256DidJwkJwtVcJwt, (header) => ({ ...header, alg: 'none' }))
+
+    expect(() => W3cV2JwtVerifiableCredential.fromCompact(compact)).toThrow(/alg.*none/)
+  })
+
+  test('rejects vp+jwt when alg is none', () => {
+    const compact = rewriteCompactJoseHeader(CredoEs256DidKeyJwtVpJwt, (header) => ({ ...header, alg: 'none' }))
+
+    expect(() => W3cV2JwtVerifiablePresentation.fromCompact(compact)).toThrow(/alg.*none/)
+  })
+
+  test('rejects vc+sd-jwt when alg is none', () => {
+    const compact = rewriteSdJwtJoseHeader(CredoEs256DidJwkJwtVcSdJwt, (header) => ({ ...header, alg: 'none' }))
+
+    expect(() => W3cV2SdJwtVerifiableCredential.fromCompact(compact)).toThrow(/alg.*none/)
+  })
+
+  test('rejects vp+sd-jwt when alg is none', () => {
+    const compact = rewriteSdJwtJoseHeader(CredoEs256DidKeyJwtVpSdJwt, (header) => ({ ...header, alg: 'none' }))
+
+    expect(() => W3cV2SdJwtVerifiablePresentation.fromCompact(compact)).toThrow(/alg.*none/)
+  })
+
   test('rejects vc+jwt when cty header is invalid', () => {
     const compact = rewriteCompactJoseHeader(CredoEs256DidJwkJwtVcJwt, (header) => ({ ...header, cty: 'vp' }))
 
@@ -73,6 +124,18 @@ describe('W3cV2 JOSE header and data model compliance', () => {
 
     expect(() => W3cV2JwtVerifiablePresentation.fromCompact(compact)).toThrow(/vp is forbidden/)
   })
+
+  test('rejects vc+sd-jwt payloads that include forbidden vc claim', () => {
+    const compact = rewriteSdJwtPayload(CredoEs256DidJwkJwtVcSdJwt, (payload) => ({ ...payload, vc: {} }))
+
+    expect(() => W3cV2SdJwtVerifiableCredential.fromCompact(compact)).toThrow(/vc is forbidden/)
+  })
+
+  test('rejects vp+sd-jwt payloads that include forbidden vp claim', () => {
+    const compact = rewriteSdJwtPayload(CredoEs256DidKeyJwtVpSdJwt, (payload) => ({ ...payload, vp: {} }))
+
+    expect(() => W3cV2SdJwtVerifiablePresentation.fromCompact(compact)).toThrow(/vp is forbidden/)
+  })
 })
 
 function rewriteSdJwtJoseHeader(
@@ -116,4 +179,17 @@ function rewriteCompactJwtPayload(
   const patchedPayload = patchPayload(payload)
 
   return `${encodedHeader}.${JsonEncoder.toBase64Url(patchedPayload)}.${encodedSignature}`
+}
+
+function rewriteSdJwtPayload(
+  compactSdJwt: string,
+  patchPayload: (payload: Record<string, unknown>) => Record<string, unknown>
+) {
+  const [issuerSigned, ...disclosures] = compactSdJwt.split('~')
+  if (!issuerSigned) {
+    throw new Error('Invalid compact SD-JWT fixture')
+  }
+
+  const patchedIssuerSigned = rewriteCompactJwtPayload(issuerSigned, patchPayload)
+  return [patchedIssuerSigned, ...disclosures].join('~')
 }

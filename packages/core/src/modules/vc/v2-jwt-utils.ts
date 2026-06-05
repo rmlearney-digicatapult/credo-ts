@@ -50,18 +50,63 @@ export async function extractHolderFromPresentationCredentials(
   presentation: W3cV2Presentation
 ) {
   const credentials = asArray(presentation.verifiableCredential)
-  if (credentials.length === 0) {
-    throw new CredoError('Presentation does not include any verifiable credentials')
-  }
 
-  let holderFromCredential: Awaited<ReturnType<typeof extractKeyFromHolderBinding>> | undefined
+  const holderDid = presentation.holderId
+  if (holderDid) {
+    if (!isDid(holderDid)) {
+      throw new CredoError(`Presentation holder '${holderDid}' is not a valid did`)
+    }
 
-  for (const [credentialIndex, credential] of credentials.entries()) {
-    if (!(credential instanceof W3cV2EnvelopedVerifiableCredential)) {
+    const dids = agentContext.resolve(DidsApi)
+    const { didDocument, keys } = await dids.resolveCreatedDidDocumentWithKeys(holderDid)
+
+    const authenticationMethods =
+      didDocument.authentication
+        ?.map((entry) => (typeof entry === 'string' ? didDocument.dereferenceVerificationMethod(entry) : entry))
+        .filter((entry): entry is VerificationMethod => !!entry) ?? []
+
+    const candidateMethods = authenticationMethods.filter((method) =>
+      keys?.some(({ didDocumentRelativeKeyId }) => method.id.endsWith(didDocumentRelativeKeyId))
+    )
+
+    if (candidateMethods.length === 0) {
       throw new CredoError(
-        `JWT/SD-JWT VP profile policy requires enveloped credentials. Unsupported credential entry at index ${credentialIndex}.`
+        `Unable to determine signer key for presentation holder '${holderDid}'. No locally controlled authentication verification method found.`
       )
     }
+
+    if (candidateMethods.length > 1) {
+      throw new CredoError(
+        `Unable to deterministically resolve signer key for presentation holder '${holderDid}'. Multiple locally controlled authentication verification methods found.`
+      )
+    }
+
+    const selectedMethod = candidateMethods[0]
+    const publicJwk = getPublicJwkFromVerificationMethod(selectedMethod)
+    publicJwk.keyId =
+      keys?.find(({ didDocumentRelativeKeyId }) => selectedMethod.id.endsWith(didDocumentRelativeKeyId))?.kmsKeyId ??
+      publicJwk.legacyKeyId
+
+    const [alg] = publicJwk.supportedSignatureAlgorithms
+    if (!alg) {
+      throw new CredoError(
+        `No supported JWA signature algorithms found for holder verification method '${selectedMethod.id}'`
+      )
+    }
+
+    return {
+      alg,
+      publicJwk,
+      cnf: {
+        kid: selectedMethod.id,
+      },
+    }
+  }
+
+  const fallbackHolders: Array<Awaited<ReturnType<typeof extractKeyFromHolderBinding>>> = []
+
+  for (const credential of credentials) {
+    if (!(credential instanceof W3cV2EnvelopedVerifiableCredential)) continue
 
     let claims: Record<string, unknown>
     if (credential.envelopedCredential instanceof W3cV2SdJwtVerifiableCredential) {
@@ -69,38 +114,27 @@ export async function extractHolderFromPresentationCredentials(
     } else if (credential.envelopedCredential instanceof W3cV2JwtVerifiableCredential) {
       claims = credential.envelopedCredential.jwt.payload.toJson()
     } else {
-      throw new CredoError(
-        `JWT/SD-JWT VP profile policy only supports vc+jwt and vc+sd-jwt credentials. Unsupported credential format at index ${credentialIndex}.`
-      )
-    }
-
-    // Profile policy: each included credential must carry holder binding and all
-    // holder bindings must resolve to the same key used to sign the presentation.
-    const holderBinding = parseHolderBindingFromCredential(claims)
-    if (!holderBinding) {
-      throw new CredoError(
-        `JWT/SD-JWT VP profile policy requires a holder binding ('cnf') on every included credential. Missing on credential entry at index ${credentialIndex}.`
-      )
-    }
-
-    const extractedHolder = await extractKeyFromHolderBinding(agentContext, holderBinding, { forSigning: true })
-    if (!holderFromCredential) {
-      holderFromCredential = extractedHolder
       continue
     }
 
-    if (holderFromCredential.publicJwk.fingerprint !== extractedHolder.publicJwk.fingerprint) {
-      throw new CredoError(
-        `JWT/SD-JWT VP profile policy requires all included credentials to share one holder binding key. Mismatch on credential entry at index ${credentialIndex}.`
-      )
-    }
+    const holderBinding = parseHolderBindingFromCredential(claims)
+    if (!holderBinding) continue
+
+    fallbackHolders.push(await extractKeyFromHolderBinding(agentContext, holderBinding, { forSigning: true }))
   }
 
-  if (!holderFromCredential) {
-    throw new CredoError('Unable to determine holder binding from credentials included in presentation')
+  if (fallbackHolders.length === 0) {
+    throw new CredoError('Unable to determine signer from presentation credentials, and presentation.holder is missing')
   }
 
-  return holderFromCredential
+  const uniqueFallbackHolders = new Map(fallbackHolders.map((holder) => [holder.publicJwk.fingerprint, holder]))
+  if (uniqueFallbackHolders.size > 1) {
+    throw new CredoError(
+      'Unable to determine signer from presentation credentials. Multiple distinct holder bindings found and presentation.holder is missing.'
+    )
+  }
+
+  return uniqueFallbackHolders.values().next().value as Awaited<ReturnType<typeof extractKeyFromHolderBinding>>
 }
 
 /**

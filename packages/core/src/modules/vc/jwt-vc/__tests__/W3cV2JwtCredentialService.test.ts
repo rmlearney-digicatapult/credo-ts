@@ -24,6 +24,7 @@ import { CREDENTIALS_CONTEXT_V2_URL } from '../../constants'
 import { ClaimFormat, W3cV2Credential, W3cV2EnvelopedVerifiableCredential, W3cV2Presentation } from '../../models'
 import { W3cV2JwtCredentialService } from '../W3cV2JwtCredentialService'
 import { W3cV2JwtVerifiableCredential } from '../W3cV2JwtVerifiableCredential'
+import { W3cV2JwtVerifiablePresentation } from '../W3cV2JwtVerifiablePresentation'
 import {
   CredoEs256DidJwkJwtVc,
   CredoEs256DidJwkJwtVcIssuerSeed,
@@ -415,21 +416,35 @@ describe('W3cV2JwtCredentialService', () => {
       expect(decodedCredentials).toHaveLength(2)
     })
 
-    test('throws when one included credential is missing holder binding cnf', async () => {
+    test('signs a holder-driven JWT vp without enclosed credentials', async () => {
+      const presentation = new W3cV2Presentation({
+        context: [CREDENTIALS_CONTEXT_V2_URL],
+        type: ['VerifiablePresentation'],
+        id: 'urn:holder-only-jwt-vp',
+        holder: holderDidKey.did,
+      })
+
+      await expect(
+        w3cV2JwtCredentialService.signPresentation(agentContext, {
+          presentation,
+          challenge: 'daf942ad-816f-45ee-a9fc-facd08e5abca',
+          domain: 'example.com',
+          format: ClaimFormat.JwtW3cVp,
+        })
+      ).resolves.toBeInstanceOf(W3cV2JwtVerifiablePresentation)
+    })
+
+    test('signs when included credentials are missing holder binding cnf', async () => {
       const credential = JsonTransformer.fromJSON(Ed256DidJwkJwtVcUnsigned, W3cV2Credential)
 
-      const credentialWithCnf = await w3cV2JwtCredentialService.signCredential(agentContext, {
+      const credentialWithoutCnfA = await w3cV2JwtCredentialService.signCredential(agentContext, {
         alg: KnownJwaSignatureAlgorithms.ES256,
         format: ClaimFormat.JwtW3cVc,
         verificationMethod: issuerDidJwk.verificationMethodId,
-        holder: {
-          method: 'did',
-          didUrl: `${holderDidKey.did}#${holderDidKey.publicJwk.fingerprint}`,
-        },
         credential,
       })
 
-      const credentialWithoutCnf = await w3cV2JwtCredentialService.signCredential(agentContext, {
+      const credentialWithoutCnfB = await w3cV2JwtCredentialService.signCredential(agentContext, {
         alg: KnownJwaSignatureAlgorithms.ES256,
         format: ClaimFormat.JwtW3cVc,
         verificationMethod: issuerDidJwk.verificationMethodId,
@@ -440,8 +455,8 @@ describe('W3cV2JwtCredentialService', () => {
         context: [CREDENTIALS_CONTEXT_V2_URL],
         type: ['VerifiablePresentation'],
         verifiableCredential: [
-          W3cV2EnvelopedVerifiableCredential.fromVerifiableCredential(credentialWithCnf),
-          W3cV2EnvelopedVerifiableCredential.fromVerifiableCredential(credentialWithoutCnf),
+          W3cV2EnvelopedVerifiableCredential.fromVerifiableCredential(credentialWithoutCnfA),
+          W3cV2EnvelopedVerifiableCredential.fromVerifiableCredential(credentialWithoutCnfB),
         ],
         id: 'urn:missing-cnf-jwt-vp',
         holder: holderDidKey.did,
@@ -454,10 +469,10 @@ describe('W3cV2JwtCredentialService', () => {
           domain: 'example.com',
           format: ClaimFormat.JwtW3cVp,
         })
-      ).rejects.toThrow("requires a holder binding ('cnf') on every included credential")
+      ).resolves.toBeInstanceOf(W3cV2JwtVerifiablePresentation)
     })
 
-    test('throws when included credentials use different holder binding keys', async () => {
+    test('signs when included credentials use different holder binding keys', async () => {
       const credential = JsonTransformer.fromJSON(Ed256DidJwkJwtVcUnsigned, W3cV2Credential)
 
       const credentialForFirstHolder = await w3cV2JwtCredentialService.signCredential(agentContext, {
@@ -500,7 +515,7 @@ describe('W3cV2JwtCredentialService', () => {
           domain: 'example.com',
           format: ClaimFormat.JwtW3cVp,
         })
-      ).rejects.toThrow('requires all included credentials to share one holder binding key')
+      ).resolves.toBeInstanceOf(W3cV2JwtVerifiablePresentation)
     })
   })
 

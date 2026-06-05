@@ -104,10 +104,10 @@ describe('W3cV2Presentation', () => {
     )
   })
 
-  test('throws an error when verifiableCredential is not a credential or an array of credentials', () => {
+  test('allows missing verifiableCredential but rejects invalid verifiableCredential entries', () => {
     expect(() =>
       JsonTransformer.fromJSON({ ...validPresentation, verifiableCredential: undefined }, W3cV2Presentation)
-    ).toThrow(/verifiableCredential value must be an instance of, or an array of instances containing/)
+    ).not.toThrow()
 
     expect(() =>
       JsonTransformer.fromJSON({ ...validPresentation, verifiableCredential: [] }, W3cV2Presentation)
