@@ -24,7 +24,11 @@ import {
   getVerificationMethodForJwt,
   validateAndResolveVerificationMethod,
 } from '../v2-jwt-utils'
-import { validateVc2CredentialStatus, validateVc2CredentialValidityPeriod } from '../validators'
+import {
+  validateVc2ContextBaseline,
+  validateVc2CredentialStatus,
+  validateVc2CredentialValidityPeriod,
+} from '../validators'
 import type {
   W3cV2SdJwtSignCredentialOptions,
   W3cV2SdJwtSignPresentationOptions,
@@ -135,6 +139,11 @@ export class W3cV2SdJwtCredentialService {
         JwtPayload.fromJson(credential.sdJwt.payload).validate({
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
+
+        validationResults.validations.dataModel = validateVc2ContextBaseline(credential.resolvedCredential.context)
+        if (!validationResults.validations.dataModel.isValid) {
+          return validationResults
+        }
 
         validationResults.validations.dataModel = {
           isValid: true,
@@ -295,6 +304,11 @@ export class W3cV2SdJwtCredentialService {
         JwtPayload.fromJson(presentation.sdJwt.payload).validate({
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
+
+        const contextValidationResult = validateVc2ContextBaseline(presentation.resolvedPresentation.context)
+        if (!contextValidationResult.isValid) {
+          throw contextValidationResult.error
+        }
 
         validationResults.presentation.validations.dataModel = {
           isValid: true,

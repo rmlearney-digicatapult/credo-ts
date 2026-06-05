@@ -184,6 +184,76 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     expect(error?.message).toContain('Unknown top-level @context URL')
   })
 
+  test('signCredential rejects invalid VC2 @context before invoking proof service', async () => {
+    const proofService = {
+      verifyProof: vi.fn(),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn(),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    await expect(
+      service.signCredential({} as never, {
+        credential: {
+          '@context': ['https://example.org/custom/v1'],
+          type: ['VerifiableCredential', 'ExampleCredential'],
+          issuer: 'did:example:issuer',
+          credentialSubject: { id: 'did:example:subject' },
+        } as never,
+        format: ClaimFormat.DiVc,
+        verificationMethod: 'did:example:issuer#key-1',
+        cryptosuite: 'eddsa-jcs-2022',
+      })
+    ).rejects.toThrow("VC2 @context must start with 'https://www.w3.org/ns/credentials/v2'")
+
+    expect((proofService.createProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+  })
+
+  test('signCredential injects VC2 @context when missing before invoking proof service', async () => {
+    const proofService = {
+      verifyProof: vi.fn(),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn().mockResolvedValue({
+        created: true,
+        proof: {
+          type: 'DataIntegrityProof',
+          cryptosuite: 'eddsa-jcs-2022',
+          proofPurpose: 'assertionMethod',
+          verificationMethod: 'did:example:issuer#key-1',
+          proofValue: 'zMockProofValue',
+        },
+      }),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn(),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    await service.signCredential({} as never, {
+      credential: {
+        type: ['VerifiableCredential', 'ExampleCredential'],
+        issuer: 'did:example:issuer',
+        credentialSubject: { id: 'did:example:subject' },
+      } as never,
+      format: ClaimFormat.DiVc,
+      verificationMethod: 'did:example:issuer#key-1',
+      cryptosuite: 'eddsa-jcs-2022',
+    })
+
+    expect((proofService.createProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+    const createProofOptions = (proofService.createProof as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      unsecuredDocument: Record<string, unknown>
+    }
+    expect(createProofOptions.unsecuredDocument['@context']).toEqual(['https://www.w3.org/ns/credentials/v2'])
+  })
+
   test('verifyPresentation returns CredoError with DI context for proof purpose failures', async () => {
     const proofService = {
       verifyProof: vi.fn().mockResolvedValue({

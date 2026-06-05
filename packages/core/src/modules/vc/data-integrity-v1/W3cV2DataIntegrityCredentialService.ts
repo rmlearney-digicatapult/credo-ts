@@ -7,11 +7,13 @@ import {
   type W3cDataIntegrityIssueList as DataIntegrityIssueList,
   W3cDataIntegrityProofService as DataIntegrityProofService,
 } from '../../w3c-di/internal'
+import { CREDENTIALS_CONTEXT_V2_URL } from '../constants'
 import { ClaimFormat } from '../models/ClaimFormat'
 import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import type { W3cV2VerifiableCredential } from '../models/credential/W3cV2VerifiableCredential'
 import type { W3cV2VerifiablePresentation } from '../models/presentation/W3cV2VerifiablePresentation'
 import type { W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models/W3cV2VerifyResult'
+import { validateVc2ContextBaseline } from '../validators'
 import type {
   W3cV2DiSignCredentialOptions,
   W3cV2DiSignPresentationOptions,
@@ -42,6 +44,15 @@ export class W3cV2DataIntegrityCredentialService {
     options: W3cV2DiSignCredentialOptions
   ): Promise<W3cV2VerifiableCredential<ClaimFormat.DiVc>> {
     const unsecuredCredential = JsonTransformer.toJSON(options.credential)
+    if (unsecuredCredential['@context'] === undefined || unsecuredCredential['@context'] === null) {
+      unsecuredCredential['@context'] = [CREDENTIALS_CONTEXT_V2_URL]
+    }
+
+    const contextValidation = validateVc2ContextBaseline(unsecuredCredential['@context'])
+    if (!contextValidation.isValid) {
+      throw contextValidation.error ?? new CredoError('VC2 credential @context validation failed')
+    }
+
     const proofResult = await this.dataIntegrityProofService.createProof(agentContext, {
       unsecuredDocument: unsecuredCredential,
       verificationMethod: options.verificationMethod,
@@ -106,6 +117,15 @@ export class W3cV2DataIntegrityCredentialService {
     options: W3cV2DiSignPresentationOptions
   ): Promise<W3cV2VerifiablePresentation<ClaimFormat.DiVp>> {
     const unsecuredPresentation = JsonTransformer.toJSON(options.presentation)
+    if (unsecuredPresentation['@context'] === undefined || unsecuredPresentation['@context'] === null) {
+      unsecuredPresentation['@context'] = [CREDENTIALS_CONTEXT_V2_URL]
+    }
+
+    const contextValidation = validateVc2ContextBaseline(unsecuredPresentation['@context'])
+    if (!contextValidation.isValid) {
+      throw contextValidation.error ?? new CredoError('VC2 presentation @context validation failed')
+    }
+
     const proofResult = await this.dataIntegrityProofService.createProof(agentContext, {
       unsecuredDocument: unsecuredPresentation,
       verificationMethod: options.verificationMethod,

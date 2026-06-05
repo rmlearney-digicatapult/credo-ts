@@ -12,7 +12,11 @@ import {
   getVerificationMethodForJwt,
   validateAndResolveVerificationMethod,
 } from '../v2-jwt-utils'
-import { validateVc2CredentialStatus, validateVc2CredentialValidityPeriod } from '../validators'
+import {
+  validateVc2ContextBaseline,
+  validateVc2CredentialStatus,
+  validateVc2CredentialValidityPeriod,
+} from '../validators'
 import type {
   W3cV2JwtSignCredentialOptions,
   W3cV2JwtSignPresentationOptions,
@@ -110,6 +114,11 @@ export class W3cV2JwtCredentialService {
         credential.jwt.payload.validate({
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
+
+        validationResults.validations.dataModel = validateVc2ContextBaseline(credential.resolvedCredential.context)
+        if (!validationResults.validations.dataModel.isValid) {
+          return validationResults
+        }
 
         validationResults.validations.dataModel = {
           isValid: true,
@@ -291,6 +300,11 @@ export class W3cV2JwtCredentialService {
         const audArray = asArray(presentation.jwt.payload.aud)
         if (options.domain && !audArray.includes(options.domain)) {
           throw new CredoError(`JWT payload 'aud' does not include domain '${options.domain}'`)
+        }
+
+        const contextValidationResult = validateVc2ContextBaseline(presentation.resolvedPresentation.context)
+        if (!contextValidationResult.isValid) {
+          throw contextValidationResult.error
         }
 
         validationResults.presentation.validations.dataModel = {
