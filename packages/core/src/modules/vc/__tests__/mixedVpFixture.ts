@@ -1,11 +1,19 @@
 import { W3cV2DataIntegrityVerifiableCredential, W3cV2DataIntegrityVerifiablePresentation } from '../data-integrity-v1'
+import {
+  CredoDidKeyDiVc,
+  CredoDidKeyDiVp,
+  CredoDidKeyDiVpDataUri,
+} from '../data-integrity-v1/__tests__/fixtures/credo-di-vc'
 import { W3cV2JwtVerifiablePresentation } from '../jwt-vc'
-import { CredoEs256DidJwkJwtVc } from '../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
+import { CredoEs256DidJwkJwtVc, CredoEs256DidKeyJwtVp } from '../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
 import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import { W3cV2EnvelopedVerifiablePresentation } from '../models/presentation/W3cV2EnvelopedVerifiablePresentation'
 import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 import { W3cV2SdJwtVerifiablePresentation } from '../sd-jwt-vc'
-import { CredoEs256DidJwkJwtVc as CredoEs256DidJwkSdJwtVc } from '../sd-jwt-vc/__tests__/fixtures/credo-sd-jwt-vc'
+import {
+  CredoEs256DidJwkJwtVc as CredoEs256DidJwkSdJwtVc,
+  CredoEs256DidKeyJwtVp as CredoEs256DidKeySdJwtVp,
+} from '../sd-jwt-vc/__tests__/fixtures/credo-sd-jwt-vc'
 
 /**
  * Canonical VC2 mixed VP fixture module.
@@ -59,19 +67,7 @@ export const staticSdJwtCredential = {
 
 export const staticDiCredential = {
   __proto__: W3cV2DataIntegrityVerifiableCredential.prototype,
-  securedCredential: {
-    '@context': ['https://www.w3.org/ns/credentials/v2'],
-    type: ['VerifiableCredential'],
-    issuer: {
-      id: 'did:example:issuer-di',
-    },
-    credentialSubject: {
-      id: 'did:key:z6MkqgkLrRyLg6bqk27djwbbaQWgaSYgFVCKq9YKxZbNkpVv',
-    },
-    proof: {
-      type: 'DataIntegrityProof',
-    },
-  },
+  securedCredential: CredoDidKeyDiVc,
 } as const
 
 type CredentialEntry =
@@ -80,10 +76,12 @@ type CredentialEntry =
   | typeof staticDiCredential
   | typeof nestedJwtVpEntry
   | typeof nestedSdJwtVpEntry
+  | typeof nestedDiVpEnvelopedEntry
+  | typeof nestedDiVpEmbeddedEntry
 
 type OuterMechanism = 'jwt' | 'sd-jwt' | 'di'
 
-type MatrixInnerKind = 'vc-jwt' | 'vc-sd-jwt' | 'vc-di' | 'nested-vp-jwt' | 'nested-vp-sd-jwt'
+type MatrixInnerKind = 'vc-jwt' | 'vc-sd-jwt' | 'vc-di' | 'nested-vp-jwt' | 'nested-vp-sd-jwt' | 'nested-vp-di'
 
 type EncodedLeafMaterial = {
   vpId: string
@@ -127,21 +125,29 @@ function buildOuterDiVp(entries: ReadonlyArray<CredentialEntry>, mutable: Mutabl
   } as const
 }
 
-function createNestedVpEntry(encodedNestedVp: string) {
-  return {
-    __proto__: W3cV2EnvelopedVerifiablePresentation.prototype,
-    id: encodedNestedVp,
-  } as const
-}
-
 const nestedJwtVpEntry = {
   __proto__: W3cV2EnvelopedVerifiablePresentation.prototype,
-  id: 'data:application/vp+jwt,eyJ0eXAiOiJ2cCtqd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9qd3RfdnAiLCJpYXQiOjE3MzU2ODk2MDAsIm5iZiI6MTczNTY4OTYwMCwibm9uY2UiOiJiN2JjNjRiOGFjZjk5ZmIxYzcyNmQ1YWIiLCJpc3MiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInN1YiI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.YjdiYzY0YjhhY2Y5OWZiMWM3MjZkNWFiM2NlM2FmYzFlZDY1YmJmNjc5YWNjZTBjMTYwZjU5NDk4MTkwMzljZg',
+  id: `data:application/vp+jwt,${CredoEs256DidKeyJwtVp}`,
 } as const
 
 const nestedSdJwtVpEntry = {
   __proto__: W3cV2EnvelopedVerifiablePresentation.prototype,
-  id: 'data:application/vp+sd-jwt,eyJ0eXAiOiJ2cCtzZC1qd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9zZF9qd3RfdnAiLCJpYXQiOjE3MzU2ODk2MDAsIm5iZiI6MTczNTY4OTYwMCwibm9uY2UiOiI4ZTIwMjJhYzUzNDJlYmY1MmZmMTkwNzkiLCJpc3MiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInN1YiI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.OGUyMDIyYWM1MzQyZWJmNTJmZjE5MDc5MTkzMjcwOTljMjQyZjA2NDFlYzY0NWM5MTcyNjc3MjFiMjliNjBmOQ~WyJub25jZSIsIjhlMjAyMmFjNTM0MiJd~',
+  id: `data:application/vp+sd-jwt,${CredoEs256DidKeySdJwtVp}`,
+} as const
+
+const nestedDiVpEnvelopedEntry = {
+  __proto__: W3cV2EnvelopedVerifiablePresentation.prototype,
+  id: CredoDidKeyDiVpDataUri,
+} as const
+
+const nestedDiVpEmbeddedEntry = {
+  __proto__: W3cV2DataIntegrityVerifiablePresentation.prototype,
+  securedPresentation: CredoDidKeyDiVp,
+  resolvedPresentation: buildResolvedPresentation([staticDiCredential], {
+    ...mutableMetadataTemplate,
+    id: CredoDidKeyDiVp.id,
+    nonce: 'nonce-nested-di-vp-leaf',
+  }),
 } as const
 
 function buildFixture(
@@ -211,7 +217,7 @@ const fixture_outerJwt_innerNestedJwtVp = buildFixture(
   'outerJwt_innerNestedJwtVp',
   'jwt',
   'nested-vp-jwt',
-  [createNestedVpEntry('data:application/vp+jwt,eyJ0eXAiOiJ2cCtqd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9qd3RfdnBfand0X291dGVyIiwiaWF0IjoxNzM1Njg5NjAwLCJuYmYiOjE3MzU2ODk2MDAsIm5vbmNlIjoiNTBjNTNhZTBlNmE3YzdjZGQ5MTMyYjQ0IiwiaXNzIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJzdWIiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiJ9.NTBjNTNhZTBlNmE3YzdjZGQ5MTMyYjQ0ZGM0ZTk2NWUxOGZmMzg2NjdiZTFjYzRhODNhNzIwYmEzZTY4NGUxMw')],
+  [nestedJwtVpEntry],
   {
     vpId: 'urn:fixture:outer-jwt-inner-nested-jwt-vp',
     nonce: 'nonce-outer-jwt-inner-nested-jwt-vp',
@@ -224,7 +230,7 @@ const fixture_outerJwt_innerNestedSdJwtVp = buildFixture(
   'outerJwt_innerNestedSdJwtVp',
   'jwt',
   'nested-vp-sd-jwt',
-  [createNestedVpEntry('data:application/vp+sd-jwt,eyJ0eXAiOiJ2cCtzZC1qd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9zZF9qd3RfdnBfand0X291dGVyIiwiaWF0IjoxNzM1Njg5NjAwLCJuYmYiOjE3MzU2ODk2MDAsIm5vbmNlIjoiNjdjYTQ2YTRmMGYzYjJjMDg3NmY3YTEwIiwiaXNzIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJzdWIiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiJ9.NjdjYTQ2YTRmMGYzYjJjMDg3NmY3YTEwODMyMTEyYWQ1MzJiYzJkYzlkMzJkMDNkOGVmZGU3MmRjMjM0MmE0OA~WyJub25jZSIsIjY3Y2E0NmE0ZjBmMyJd~')],
+  [nestedSdJwtVpEntry],
   {
     vpId: 'urn:fixture:outer-jwt-inner-nested-sd-jwt-vp',
     nonce: 'nonce-outer-jwt-inner-nested-sd-jwt-vp',
@@ -273,7 +279,7 @@ const fixture_outerSdJwt_innerNestedJwtVp = buildFixture(
   'outerSdJwt_innerNestedJwtVp',
   'sd-jwt',
   'nested-vp-jwt',
-  [createNestedVpEntry('data:application/vp+jwt,eyJ0eXAiOiJ2cCtqd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9qd3RfdnBfc2Rfand0X291dGVyIiwiaWF0IjoxNzM1Njg5NjAwLCJuYmYiOjE3MzU2ODk2MDAsIm5vbmNlIjoiYzVhNGQxZTI2ZjE4N2NhN2FmOWVlM2I5IiwiaXNzIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJzdWIiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiJ9.YzVhNGQxZTI2ZjE4N2NhN2FmOWVlM2I5MjRiMDcwZTUwMTQ1M2Y1ZjIyYzZkMThkZmUwMzJkMDkwMGQ3OWY1OA')],
+  [nestedJwtVpEntry],
   {
     vpId: 'urn:fixture:outer-sd-jwt-inner-nested-jwt-vp',
     nonce: 'nonce-outer-sd-jwt-inner-nested-jwt-vp',
@@ -286,7 +292,7 @@ const fixture_outerSdJwt_innerNestedSdJwtVp = buildFixture(
   'outerSdJwt_innerNestedSdJwtVp',
   'sd-jwt',
   'nested-vp-sd-jwt',
-  [createNestedVpEntry('data:application/vp+sd-jwt,eyJ0eXAiOiJ2cCtzZC1qd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9zZF9qd3RfdnBfc2Rfand0X291dGVyIiwiaWF0IjoxNzM1Njg5NjAwLCJuYmYiOjE3MzU2ODk2MDAsIm5vbmNlIjoiNmJlZjQ0OWJjYmZlZDNjZmMyYWU3NjdhIiwiaXNzIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJzdWIiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiJ9.NmJlZjQ0OWJjYmZlZDNjZmMyYWU3NjdhYTU3MDEzNDA4OTJjYzk2OWI4ZjBkMTY3YjljMTljYmVmMmE0NzEzNg~WyJub25jZSIsIjZiZWY0NDliY2JmZSJd~')],
+  [nestedSdJwtVpEntry],
   {
     vpId: 'urn:fixture:outer-sd-jwt-inner-nested-sd-jwt-vp',
     nonce: 'nonce-outer-sd-jwt-inner-nested-sd-jwt-vp',
@@ -323,7 +329,7 @@ const fixture_outerDi_innerNestedJwtVp = buildFixture(
   'outerDi_innerNestedJwtVp',
   'di',
   'nested-vp-jwt',
-  [createNestedVpEntry('data:application/vp+jwt,eyJ0eXAiOiJ2cCtqd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9qd3RfdnBfZGlfb3V0ZXIiLCJpYXQiOjE3MzU2ODk2MDAsIm5iZiI6MTczNTY4OTYwMCwibm9uY2UiOiIwN2Q3MTE5YjY0YzdhNzE2OTM1MjY5N2IiLCJpc3MiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInN1YiI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.MDdkNzExOWI2NGM3YTcxNjkzNTI2OTdiOGE2NjI0NDk0MTBjMWEzN2YyNzY2ZTllNDgwOTBkYmVkYWUzNWQwOQ')],
+  [nestedJwtVpEntry],
   {
     vpId: 'urn:fixture:outer-di-inner-nested-jwt-vp',
     nonce: 'nonce-outer-di-inner-nested-jwt-vp',
@@ -336,7 +342,7 @@ const fixture_outerDi_innerNestedSdJwtVp = buildFixture(
   'outerDi_innerNestedSdJwtVp',
   'di',
   'nested-vp-sd-jwt',
-  [createNestedVpEntry('data:application/vp+sd-jwt,eyJ0eXAiOiJ2cCtzZC1qd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX25lc3RlZF9zZF9qd3RfdnBfZGlfb3V0ZXIiLCJpYXQiOjE3MzU2ODk2MDAsIm5iZiI6MTczNTY4OTYwMCwibm9uY2UiOiIyNTJjZDcxNWY2YmM5M2FiMzUzMjY1ODMiLCJpc3MiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInN1YiI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.MjUyY2Q3MTVmNmJjOTNhYjM1MzI2NTgzNTk3YmM0MTIxNTk0YzNmYmM1ZTg4ZTliMjdjYWY5ZTA3NWYxNWM1Yw~WyJub25jZSIsIjI1MmNkNzE1ZjZiYyJd~')],
+  [nestedSdJwtVpEntry],
   {
     vpId: 'urn:fixture:outer-di-inner-nested-sd-jwt-vp',
     nonce: 'nonce-outer-di-inner-nested-sd-jwt-vp',
@@ -345,6 +351,33 @@ const fixture_outerDi_innerNestedSdJwtVp = buildFixture(
   }
 )
 
+const fixture_outerJwt_innerNestedDiVp = buildFixture('outerJwt_innerNestedDiVp', 'jwt', 'nested-vp-di', [nestedDiVpEnvelopedEntry], {
+  vpId: 'urn:fixture:outer-jwt-inner-nested-di-vp',
+  nonce: 'nonce-outer-jwt-inner-nested-di-vp',
+  outerEncoded: 'data:application/vp+jwt,eyJ0eXAiOiJ2cCtqd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX291dGVyX2p3dF9pbm5lcl9uZXN0ZWRfZGlfdnAiLCJpYXQiOjE3MzU2ODk2MDAsIm5iZiI6MTczNTY4OTYwMCwibm9uY2UiOiI3OGY5ZDAxMTA1Njk4OWE0MjgwODdhNGQiLCJpc3MiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInN1YiI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.NzhmOWQwMTEwNTY5ODlhNDI4MDg3YTRkYWVjNDFkOTljYjRjMmM0MDAxYTIyNmQxMzRjMTdhMzhhYWUxODczMg',
+  nestedEncoded: 'data:application/vp+di,eyJAY29udGV4dCI6WyJodHRwczovL3d3dy53My5vcmcvbnMvY3JlZGVudGlhbHMvdjIiXSwidHlwZSI6WyJWZXJpZmlhYmxlUHJlc2VudGF0aW9uIl0sImlkIjoidXJuOmZpeHR1cmU6cmVwbGFjZV9uZXN0ZWRfZGlfdnBfand0X291dGVyIiwiaG9sZGVyIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJwcm9vZiI6eyJ0eXBlIjoiRGF0YUludGVncml0eVByb29mIiwiY3J5cHRvc3VpdGUiOiJlY2RzYS1yZGZjLTIwMTkiLCJjcmVhdGVkIjoiMjAyNS0wMS0wMVQwMDowMDowMC4wMDBaIiwidmVyaWZpY2F0aW9uTWV0aG9kIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYjejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2IiwicHJvb2ZQdXJwb3NlIjoiYXV0aGVudGljYXRpb24iLCJwcm9vZlZhbHVlIjoiTkdZek9ETTFOakpqWkRSaE5qUTRNamxqT1dJeVkyWXlOMkpsT1RjMlpXSmhabUUyT1RRek5ESmhOakE1TnpnMU9UY3daVGcyTlRGalpUVXhZakEyTmcifX0',
+})
+
+const fixture_outerSdJwt_innerNestedDiVp = buildFixture(
+  'outerSdJwt_innerNestedDiVp',
+  'sd-jwt',
+  'nested-vp-di',
+  [nestedDiVpEnvelopedEntry],
+  {
+    vpId: 'urn:fixture:outer-sd-jwt-inner-nested-di-vp',
+    nonce: 'nonce-outer-sd-jwt-inner-nested-di-vp',
+    outerEncoded: 'data:application/vp+sd-jwt,eyJ0eXAiOiJ2cCtzZC1qd3QiLCJhbGciOiJFUzI1NiIsImtpZCI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.eyJqdGkiOiJ1cm46Zml4dHVyZTpyZXBsYWNlX291dGVyX3NkX2p3dF9pbm5lcl9uZXN0ZWRfZGlfdnAiLCJpYXQiOjE3MzU2ODk2MDAsIm5iZiI6MTczNTY4OTYwMCwibm9uY2UiOiI0Y2Q5YmFkNjhkMWE2ODFkYjM3ZDlhOWMiLCJpc3MiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInN1YiI6ImRpZDprZXk6ejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2In0.NGNkOWJhZDY4ZDFhNjgxZGIzN2Q5YTljYmMwMWQ3ZjNmNWExMmUxMWE0ZDdhNjE2MTdmZjFkNzVkY2I2NDJlOA~WyJub25jZSIsIjRjZDliYWQ2OGQxYSJd~',
+    nestedEncoded: 'data:application/vp+di,eyJAY29udGV4dCI6WyJodHRwczovL3d3dy53My5vcmcvbnMvY3JlZGVudGlhbHMvdjIiXSwidHlwZSI6WyJWZXJpZmlhYmxlUHJlc2VudGF0aW9uIl0sImlkIjoidXJuOmZpeHR1cmU6cmVwbGFjZV9uZXN0ZWRfZGlfdnBfc2Rfand0X291dGVyIiwiaG9sZGVyIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJwcm9vZiI6eyJ0eXBlIjoiRGF0YUludGVncml0eVByb29mIiwiY3J5cHRvc3VpdGUiOiJlY2RzYS1yZGZjLTIwMTkiLCJjcmVhdGVkIjoiMjAyNS0wMS0wMVQwMDowMDowMC4wMDBaIiwidmVyaWZpY2F0aW9uTWV0aG9kIjoiZGlkOmtleTp6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYjejZNa3Fna0xyUnlMZzZicWsyN2Rqd2JiYVFXZ2FTWWdGVkNLcTlZS3haYk5rcFZ2IiwicHJvb2ZQdXJwb3NlIjoiYXV0aGVudGljYXRpb24iLCJwcm9vZlZhbHVlIjoiWkRnd1pEVTBZakkzWldZeE1EbGtZelEyWmpkaVpXVmxOREF3WVdNeFkySmxOMlUzTkRJMFlXSmlOekF5T0RVellXUmlaV1psTURVNE4yTmhPV1k0TlEifX0',
+  }
+)
+
+const fixture_outerDi_innerNestedDiVp = buildFixture('outerDi_innerNestedDiVp', 'di', 'nested-vp-di', [nestedDiVpEmbeddedEntry], {
+  vpId: 'urn:fixture:outer-di-inner-nested-di-vp',
+  nonce: 'nonce-outer-di-inner-nested-di-vp',
+  outerEncoded: 'data:application/vp+di,eyJAY29udGV4dCI6WyJodHRwczovL3d3dy53My5vcmcvbnMvY3JlZGVudGlhbHMvdjIiXSwidHlwZSI6WyJWZXJpZmlhYmxlUHJlc2VudGF0aW9uIl0sImlkIjoidXJuOmZpeHR1cmU6cmVwbGFjZV9vdXRlcl9kaV9pbm5lcl9uZXN0ZWRfZGlfdnAiLCJob2xkZXIiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInByb29mIjp7InR5cGUiOiJEYXRhSW50ZWdyaXR5UHJvb2YiLCJjcnlwdG9zdWl0ZSI6ImVjZHNhLXJkZmMtMjAxOSIsImNyZWF0ZWQiOiIyMDI1LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJ2ZXJpZmljYXRpb25NZXRob2QiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiN6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJwcm9vZlB1cnBvc2UiOiJhdXRoZW50aWNhdGlvbiIsInByb29mVmFsdWUiOiJZak00WWpVd01qUTFNRFEzTXpJek9ERXlNekk1WVRRd00yWmtZbUptWkRKa1ptTm1ZalE0T0RJNVlqZ3hOamt4TnpJeFkyUmxNakV3WkdZNE0yRmpZdyJ9fQ',
+  nestedEncoded: 'data:application/vp+di,eyJAY29udGV4dCI6WyJodHRwczovL3d3dy53My5vcmcvbnMvY3JlZGVudGlhbHMvdjIiXSwidHlwZSI6WyJWZXJpZmlhYmxlUHJlc2VudGF0aW9uIl0sImlkIjoidXJuOmZpeHR1cmU6cmVwbGFjZV9uZXN0ZWRfZGlfdnBfZGlfb3V0ZXIiLCJob2xkZXIiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiIsInByb29mIjp7InR5cGUiOiJEYXRhSW50ZWdyaXR5UHJvb2YiLCJjcnlwdG9zdWl0ZSI6ImVjZHNhLXJkZmMtMjAxOSIsImNyZWF0ZWQiOiIyMDI1LTAxLTAxVDAwOjAwOjAwLjAwMFoiLCJ2ZXJpZmljYXRpb25NZXRob2QiOiJkaWQ6a2V5Ono2TWtxZ2tMclJ5TGc2YnFrMjdkandiYmFRV2dhU1lnRlZDS3E5WUt4WmJOa3BWdiN6Nk1rcWdrTHJSeUxnNmJxazI3ZGp3YmJhUVdnYVNZZ0ZWQ0txOVlLeFpiTmtwVnYiLCJwcm9vZlB1cnBvc2UiOiJhdXRoZW50aWNhdGlvbiIsInByb29mVmFsdWUiOiJNV1l6WkRFMU56ZzFabVZqWmpSa1lXTTFPVFUyWmpsaU1tSTBaalUwWVRnek4yUTVOVE0xTUdaaU9EZGpPR1JpTWpRelpXRm1OVFU0TVdFMk4yWXhNQSJ9fQ',
+})
+
 // Ordered matrix export for deterministic consumption by tests/generation tooling.
 const vpMatrixFixtures = [
   fixture_outerJwt_innerJwtVc,
@@ -352,16 +385,19 @@ const vpMatrixFixtures = [
   fixture_outerJwt_innerDiVc,
   fixture_outerJwt_innerNestedJwtVp,
   fixture_outerJwt_innerNestedSdJwtVp,
+  fixture_outerJwt_innerNestedDiVp,
   fixture_outerSdJwt_innerJwtVc,
   fixture_outerSdJwt_innerSdJwtVc,
   fixture_outerSdJwt_innerDiVc,
   fixture_outerSdJwt_innerNestedJwtVp,
   fixture_outerSdJwt_innerNestedSdJwtVp,
+  fixture_outerSdJwt_innerNestedDiVp,
   fixture_outerDi_innerJwtVc,
   fixture_outerDi_innerSdJwtVc,
   fixture_outerDi_innerDiVc,
   fixture_outerDi_innerNestedJwtVp,
   fixture_outerDi_innerNestedSdJwtVp,
+  fixture_outerDi_innerNestedDiVp,
 ] as const
 
 // Named record variant for ergonomic lookups in tests.
@@ -371,14 +407,17 @@ export const vpMatrixFixtureByName = {
   outerJwt_innerDiVc: fixture_outerJwt_innerDiVc,
   outerJwt_innerNestedJwtVp: fixture_outerJwt_innerNestedJwtVp,
   outerJwt_innerNestedSdJwtVp: fixture_outerJwt_innerNestedSdJwtVp,
+  outerJwt_innerNestedDiVp: fixture_outerJwt_innerNestedDiVp,
   outerSdJwt_innerJwtVc: fixture_outerSdJwt_innerJwtVc,
   outerSdJwt_innerSdJwtVc: fixture_outerSdJwt_innerSdJwtVc,
   outerSdJwt_innerDiVc: fixture_outerSdJwt_innerDiVc,
   outerSdJwt_innerNestedJwtVp: fixture_outerSdJwt_innerNestedJwtVp,
   outerSdJwt_innerNestedSdJwtVp: fixture_outerSdJwt_innerNestedSdJwtVp,
+  outerSdJwt_innerNestedDiVp: fixture_outerSdJwt_innerNestedDiVp,
   outerDi_innerJwtVc: fixture_outerDi_innerJwtVc,
   outerDi_innerSdJwtVc: fixture_outerDi_innerSdJwtVc,
   outerDi_innerDiVc: fixture_outerDi_innerDiVc,
   outerDi_innerNestedJwtVp: fixture_outerDi_innerNestedJwtVp,
   outerDi_innerNestedSdJwtVp: fixture_outerDi_innerNestedSdJwtVp,
+  outerDi_innerNestedDiVp: fixture_outerDi_innerNestedDiVp,
 } as const

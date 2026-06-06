@@ -13,6 +13,7 @@ import {
   EddsaJcs2022Cryptosuite,
 } from '../../../w3c-di/internal'
 import { ClaimFormat } from '../../models'
+import { CredoDidKeyDiExampleCredentialToSign } from './fixtures/credo-di-vc'
 import type {
   W3cV2DiVerifyCredentialOptions,
   W3cV2DiVerifyPresentationOptions,
@@ -209,7 +210,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
         verificationMethod: 'did:example:issuer#key-1',
         cryptosuite: 'eddsa-jcs-2022',
       })
-    ).rejects.toThrow("VC2 @context must start with 'https://www.w3.org/ns/credentials/v2'")
+    ).rejects.toThrow(/context has failed the following constraints/)
 
     expect((proofService.createProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
   })
@@ -448,15 +449,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     })
 
     test('signs and verifies a credential through the VC and data integrity layers', async () => {
-      const unsecuredCredential = {
-        '@context': ['https://www.w3.org/ns/credentials/v2'],
-        type: ['VerifiableCredential', 'ExampleCredential'],
-        issuer: 'https://example.org/issuer',
-        credentialSubject: {
-          id: 'did:example:subject',
-          name: 'Jane Doe',
-        },
-      }
+      const unsecuredCredential = CredoDidKeyDiExampleCredentialToSign
 
       const signedCredential = (await diCredentialService.signCredential(agentContext, {
         credential: unsecuredCredential as never,
@@ -479,15 +472,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     })
 
     test('verify fails when the secured credential loses its top-level context', async () => {
-      const unsecuredCredential = {
-        '@context': ['https://www.w3.org/ns/credentials/v2'],
-        type: ['VerifiableCredential', 'ExampleCredential'],
-        issuer: 'https://example.org/issuer',
-        credentialSubject: {
-          id: 'did:example:subject',
-          name: 'Jane Doe',
-        },
-      }
+      const unsecuredCredential = CredoDidKeyDiExampleCredentialToSign
 
       const signedCredential = await diCredentialService.signCredential(agentContext, {
         credential: unsecuredCredential as never,
@@ -510,15 +495,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     })
 
     test('verify fails when an unknown top-level context is present after signing', async () => {
-      const unsecuredCredential = {
-        '@context': ['https://www.w3.org/ns/credentials/v2'],
-        type: ['VerifiableCredential', 'ExampleCredential'],
-        issuer: 'https://example.org/issuer',
-        credentialSubject: {
-          id: 'did:example:subject',
-          name: 'Jane Doe',
-        },
-      }
+      const unsecuredCredential = CredoDidKeyDiExampleCredentialToSign
 
       const signedCredential = await diCredentialService.signCredential(agentContext, {
         credential: unsecuredCredential as never,
