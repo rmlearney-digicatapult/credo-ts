@@ -32,21 +32,6 @@ describe('decodeW3cV2VerifiablePresentation', () => {
     expect(result).toBeInstanceOf(W3cV2SdJwtVerifiablePresentation)
   })
 
-  test('accepts envelope-first vp+di data URI encoding', () => {
-    const diEnvelopePayload =
-      'eyJAY29udGV4dCI6WyJodHRwczovL3d3dy53My5vcmcvbnMvY3JlZGVudGlhbHMvdjIiXSwidHlwZSI6WyJWZXJpZmlhYmxlUHJlc2VudGF0aW9uIl0sImlkIjoidXJuOmRlY29kZXItdnAtZGkiLCJob2xkZXIiOiJkaWQ6ZXhhbXBsZTpodW1hbiIsInByb29mIjp7InR5cGUiOiJEYXRhSW50ZWdyaXR5UHJvb2YifX0'
-
-    const result = decodeW3cV2VerifiablePresentation(`data:application/vp+di,${diEnvelopePayload}`)
-
-    expect(result).toBeInstanceOf(W3cV2DataIntegrityVerifiablePresentation)
-  })
-
-  test('rejects invalid envelope-first vp+di payload', () => {
-    expect(() => decodeW3cV2VerifiablePresentation('data:application/vp+di,not-json-or-base64url')).toThrow(
-      CredoError
-    )
-  })
-
   test('rejects unsupported data URI encoding for presentation', () => {
     expect(() => decodeW3cV2VerifiablePresentation('data:application/vp+cose,ZmFrZQ')).toThrow(CredoError)
   })

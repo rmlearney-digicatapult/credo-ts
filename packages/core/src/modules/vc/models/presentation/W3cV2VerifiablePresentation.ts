@@ -31,9 +31,6 @@ export const decodeW3cV2EnvelopedVerifiablePresentation = (value: string) => {
     case 'application/vp+jwt':
       return W3cV2JwtVerifiablePresentation.fromCompact(data)
 
-    case 'application/vp+di':
-      return W3cV2DataIntegrityVerifiablePresentation.fromDataUri(value)
-
     default:
       throw new CredoError(`Unsupported Enveloped Verifiable Presentation: ${mimetype} not recognized`)
   }
@@ -121,16 +118,18 @@ export function W3cV2VerifiablePresentationTransformer() {
 
 /**
  * A Secured W3C Verifiable Presentation (VP) as defined in the W3C VC Data Model 2.0
- * and secured according to the VC-JOSE-COSE specification.
+ * and secured according to VC-JOSE-COSE and VC Data Integrity specifications.
  *
  * It can be one of:
- * - An Verifiable Presentation encoded as a JWT.
- * - An Verifiable Presentation encoded as a SD-JWT.
+ * - A Verifiable Presentation encoded as a JWT.
+ * - A Verifiable Presentation encoded as a SD-JWT.
+ * - A Verifiable Presentation with embedded Data Integrity proof(s).
  *
  * This can be further enveloped using a {@link W3cV2EnvelopedVerifiablePresentation}.
  *
  * @see https://www.w3.org/TR/vc-data-model-2.0/
  * @see https://www.w3.org/TR/vc-jose-cose/
+ * @see https://www.w3.org/TR/vc-data-integrity/
  *
  */
 export type W3cV2VerifiablePresentation<

@@ -1,5 +1,5 @@
 import { CredoError } from '../../../error'
-import { JsonEncoder, JsonTransformer, MessageValidator } from '../../../utils'
+import { JsonTransformer, MessageValidator } from '../../../utils'
 import { ClaimFormat } from '../models/ClaimFormat'
 import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 
@@ -29,48 +29,6 @@ export class W3cV2DataIntegrityVerifiablePresentation {
     return new W3cV2DataIntegrityVerifiablePresentation({
       securedPresentation: presentation,
     })
-  }
-
-  public static fromDataUri(dataUri: string) {
-    if (!dataUri.startsWith('data:')) {
-      throw new CredoError('Invalid Data Integrity Verifiable Presentation: value is not a valid data URI')
-    }
-
-    const mimeTypeData = dataUri.slice(5)
-    const commaIndex = mimeTypeData.indexOf(',')
-    if (commaIndex === -1) {
-      throw new CredoError('Invalid Data Integrity Verifiable Presentation: data URI is missing comma separator')
-    }
-
-    const mimeType = mimeTypeData.slice(0, commaIndex)
-    if (mimeType !== 'application/vp+di') {
-      throw new CredoError(`Unsupported Data Integrity Verifiable Presentation encoding: ${mimeType}`)
-    }
-
-    const payload = mimeTypeData.slice(commaIndex + 1)
-    return W3cV2DataIntegrityVerifiablePresentation.fromDataUriPayload(payload)
-  }
-
-  public static fromDataUriPayload(payload: string) {
-    try {
-      const parsed = JSON.parse(payload)
-      if (isEmbeddedDataIntegrityPresentation(parsed)) {
-        return W3cV2DataIntegrityVerifiablePresentation.fromObject(parsed)
-      }
-    } catch {
-      // Ignore JSON parse errors and try base64url below.
-    }
-
-    try {
-      const decoded = JsonEncoder.fromBase64Url(payload)
-      if (isEmbeddedDataIntegrityPresentation(decoded)) {
-        return W3cV2DataIntegrityVerifiablePresentation.fromObject(decoded)
-      }
-    } catch {
-      // Fall through to explicit error below.
-    }
-
-    throw new CredoError('Invalid Data Integrity Verifiable Presentation: vp+di payload is not valid JSON')
   }
 
   /**
