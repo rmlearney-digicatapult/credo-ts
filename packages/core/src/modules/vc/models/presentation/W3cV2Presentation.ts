@@ -5,9 +5,13 @@ import { JsonTransformer, mapSingleOrArray } from '../../../../utils'
 import { IsInstanceOrArrayOfInstances, IsNever, IsUri } from '../../../../utils/validators'
 import { CREDENTIALS_CONTEXT_V2_URL, VERIFIABLE_PRESENTATION_TYPE } from '../../constants'
 import {
+  type W3cV2DataIntegritySecuredCredential,
   W3cV2DataIntegrityVerifiableCredential,
-  type W3cV2DataIntegrityVerifiableCredentialOptions,
 } from '../../data-integrity-v1/W3cV2DataIntegrityVerifiableCredential'
+import {
+  type W3cV2DataIntegritySecuredPresentation,
+  W3cV2DataIntegrityVerifiablePresentation,
+} from '../../data-integrity-v1/W3cV2DataIntegrityVerifiablePresentation'
 import { IsCredentialJsonLdContext, IsVerifiablePresentationType } from '../../validators'
 import {
   W3cV2EnvelopedVerifiableCredential,
@@ -24,11 +28,13 @@ export type W3cV2PresentationCredentialEntry =
   | W3cV2EnvelopedVerifiableCredential
   | W3cV2EnvelopedVerifiablePresentation
   | W3cV2DataIntegrityVerifiableCredential
+  | W3cV2DataIntegrityVerifiablePresentation
 
 export type W3cV2PresentationCredentialEntryOptions =
   | W3cV2EnvelopedVerifiableCredentialOptions
   | W3cV2EnvelopedVerifiablePresentationOptions
-  | W3cV2DataIntegrityVerifiableCredentialOptions['securedCredential']
+  | W3cV2DataIntegritySecuredCredential
+  | W3cV2DataIntegritySecuredPresentation
   | W3cV2PresentationCredentialEntry
 
 export interface W3cV2PresentationOptions {
@@ -50,7 +56,8 @@ export class W3cV2Presentation {
           if (
             entry instanceof W3cV2EnvelopedVerifiableCredential ||
             entry instanceof W3cV2EnvelopedVerifiablePresentation ||
-            entry instanceof W3cV2DataIntegrityVerifiableCredential
+            entry instanceof W3cV2DataIntegrityVerifiableCredential ||
+            entry instanceof W3cV2DataIntegrityVerifiablePresentation
           ) {
             return entry
           }
@@ -61,6 +68,10 @@ export class W3cV2Presentation {
 
           if (isEmbeddedDataIntegrityCredential(entry)) {
             return W3cV2DataIntegrityVerifiableCredential.fromObject(entry)
+          }
+
+          if (isEmbeddedDataIntegrityPresentation(entry)) {
+            return W3cV2DataIntegrityVerifiablePresentation.fromObject(entry)
           }
 
           return new W3cV2EnvelopedVerifiableCredential(entry as W3cV2EnvelopedVerifiableCredentialOptions)
@@ -96,6 +107,7 @@ export class W3cV2Presentation {
       W3cV2EnvelopedVerifiableCredential,
       W3cV2EnvelopedVerifiablePresentation,
       W3cV2DataIntegrityVerifiableCredential,
+      W3cV2DataIntegrityVerifiablePresentation,
     ],
   })
   @ValidateNested({ each: true })
@@ -118,9 +130,23 @@ export class W3cV2Presentation {
   }
 }
 
+function isEmbeddedDataIntegrityPresentation(
+  value: unknown
+): value is W3cV2DataIntegritySecuredPresentation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (!('proof' in value) || !('type' in value)) return false
+
+  const candidate = value as { type?: unknown }
+  if (Array.isArray(candidate.type)) {
+    return candidate.type.includes(VERIFIABLE_PRESENTATION_TYPE)
+  }
+
+  return candidate.type === VERIFIABLE_PRESENTATION_TYPE
+}
+
 function isEmbeddedDataIntegrityCredential(
   value: unknown
-): value is W3cV2DataIntegrityVerifiableCredentialOptions['securedCredential'] {
+): value is W3cV2DataIntegritySecuredCredential {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
 
   return 'proof' in value

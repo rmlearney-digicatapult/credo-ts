@@ -49,7 +49,9 @@ import type {
   W3cV2VerifyPresentationOptions,
 } from './W3cV2CredentialServiceOptions'
 
-type VerifyPresentationRequestContext = Pick<W3cV2VerifyPresentationOptions, 'challenge' | 'domain'>
+type VerifyPresentationRequestContext = Pick<W3cV2VerifyPresentationOptions, 'challenge' | 'domain'> & {
+  allowNestedDiPresentation: boolean
+}
 
 @injectable()
 export class W3cV2CredentialService {
@@ -294,6 +296,7 @@ export class W3cV2CredentialService {
           this.verifyPresentationEntry(agentContext, entry, signerId, {
             challenge: options.challenge,
             domain: options.domain,
+            allowNestedDiPresentation: presentation instanceof W3cV2DataIntegrityVerifiablePresentation,
           })
         )
       )
@@ -311,6 +314,43 @@ export class W3cV2CredentialService {
     signerId: string,
     presentationContext: VerifyPresentationRequestContext
   ): Promise<W3cV2PresentationCredentialEntryResult[]> {
+    if (entry instanceof W3cV2DataIntegrityVerifiablePresentation) {
+      if (!presentationContext.allowNestedDiPresentation) {
+        return [
+          this.createInvalidCredentialEntryResult(
+            new CredoError("Nested presentation entry uses 'di_vp' outside a DI outer presentation.")
+          ),
+        ]
+      }
+
+      const nestedPresentationResult = await this.w3cV2DataIntegrityCredentialService.verifyPresentation(agentContext, {
+        challenge: presentationContext.challenge,
+        domain: presentationContext.domain,
+        presentation: entry,
+      } as W3cV2DiVerifyPresentationOptions)
+
+      if (!nestedPresentationResult.presentation.isValid) {
+        return [this.createInvalidCredentialEntryResult(new CredoError('Nested presentation verification failed.'))]
+      }
+
+      const nestedSignerId = entry.resolvedPresentation.holderId
+      if (!nestedSignerId) {
+        return [
+          this.createInvalidCredentialEntryResult(
+            new CredoError('Unable to derive signer id from nested presentation for credential entry validation.')
+          ),
+        ]
+      }
+
+      return (
+        await Promise.all(
+          asArray(entry.resolvedPresentation.verifiableCredential).map((nestedEntry) =>
+            this.verifyPresentationEntry(agentContext, nestedEntry, nestedSignerId, presentationContext)
+          )
+        )
+      ).flat()
+    }
+
     if (entry instanceof W3cV2DataIntegrityVerifiableCredential) {
       const credentialResult = await this.w3cV2DataIntegrityCredentialService.verifyCredential(agentContext, {
         credential: entry,
@@ -341,6 +381,13 @@ export class W3cV2CredentialService {
                 domain: presentationContext.domain,
                 presentation: nestedPresentation,
               } as W3cV2SdJwtVerifyPresentationOptions)
+            : nestedPresentation instanceof W3cV2DataIntegrityVerifiablePresentation &&
+                presentationContext.allowNestedDiPresentation
+              ? await this.w3cV2DataIntegrityCredentialService.verifyPresentation(agentContext, {
+                  challenge: presentationContext.challenge,
+                  domain: presentationContext.domain,
+                  presentation: nestedPresentation,
+                } as W3cV2DiVerifyPresentationOptions)
             : undefined
 
       if (!nestedPresentationResult) {
@@ -413,8 +460,15 @@ export class W3cV2CredentialService {
 
   private async deriveSignerIdFromPresentation(
     agentContext: AgentContext,
-    presentation: W3cV2JwtVerifiablePresentation | W3cV2SdJwtVerifiablePresentation
+    presentation:
+      | W3cV2JwtVerifiablePresentation
+      | W3cV2SdJwtVerifiablePresentation
+      | W3cV2DataIntegrityVerifiablePresentation
   ): Promise<string | undefined> {
+    if (presentation instanceof W3cV2DataIntegrityVerifiablePresentation) {
+      return presentation.resolvedPresentation.holderId
+    }
+
     const holderId = presentation.resolvedPresentation.holderId
     if (holderId) return holderId
 

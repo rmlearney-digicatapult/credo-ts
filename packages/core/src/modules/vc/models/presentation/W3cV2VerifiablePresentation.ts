@@ -31,6 +31,9 @@ export const decodeW3cV2EnvelopedVerifiablePresentation = (value: string) => {
     case 'application/vp+jwt':
       return W3cV2JwtVerifiablePresentation.fromCompact(data)
 
+    case 'application/vp+di':
+      return W3cV2DataIntegrityVerifiablePresentation.fromDataUri(value)
+
     default:
       throw new CredoError(`Unsupported Enveloped Verifiable Presentation: ${mimetype} not recognized`)
   }
@@ -129,7 +132,6 @@ export function W3cV2VerifiablePresentationTransformer() {
  * @see https://www.w3.org/TR/vc-data-model-2.0/
  * @see https://www.w3.org/TR/vc-jose-cose/
  *
- * TODO: add support for embedded proof mechanisms (Verifiable Credential Data Integrity 1.0)
  */
 export type W3cV2VerifiablePresentation<
   Format extends ClaimFormat.JwtW3cVp | ClaimFormat.SdJwtW3cVp | ClaimFormat.DiVp | unknown = unknown,
