@@ -4,7 +4,7 @@ import type { AgentContext } from '../../../agent/context'
 import { JwtPayload } from '../../../crypto'
 import { CredoError } from '../../../error'
 import { injectable } from '../../../plugins'
-import { JsonTransformer, MessageValidator, nowInSeconds, TypedArrayEncoder } from '../../../utils'
+import { asArray, JsonTransformer, MessageValidator, nowInSeconds, TypedArrayEncoder } from '../../../utils'
 import { getPublicJwkFromVerificationMethod } from '../../dids/domain/key-type/keyDidMapping'
 import { KeyManagementApi } from '../../kms'
 import {
@@ -304,6 +304,17 @@ export class W3cV2SdJwtCredentialService {
         JwtPayload.fromJson(presentation.sdJwt.payload).validate({
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
+
+        // VC-JOSE-COSE: understood claims MUST be evaluated per verifier policy
+        // https://www.w3.org/TR/vc-jose-cose/#validation-algorithm
+        if (options.challenge !== presentation.sdJwt.prettyClaims.nonce) {
+          throw new CredoError(`JWT payload 'nonce' does not match challenge '${options.challenge}'`)
+        }
+
+        const audArray = asArray(presentation.sdJwt.prettyClaims.aud)
+        if (options.domain && !audArray.includes(options.domain)) {
+          throw new CredoError(`JWT payload 'aud' does not include domain '${options.domain}'`)
+        }
 
         const contextValidationResult = validateVc2ContextBaseline(presentation.resolvedPresentation.context)
         if (!contextValidationResult.isValid) {

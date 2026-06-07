@@ -599,5 +599,35 @@ describe('W3cV2SdJwtCredentialService', () => {
         credentialEntries: [],
       })
     })
+
+    test('fails verification when challenge does not match nonce', async () => {
+      const result = await w3cV2JwtCredentialService.verifyPresentation(agentContext, {
+        presentation: CredoEs256DidKeyJwtVp,
+        challenge: 'mismatched-challenge',
+        domain: 'example.com',
+      })
+
+      expect(result.isValid).toBe(false)
+      expect(result.presentation.isValid).toBe(false)
+      expect(result.presentation.validations.dataModel?.isValid).toBe(false)
+      expect(result.presentation.validations.dataModel?.error).toBeInstanceOf(CredoError)
+      expect(result.presentation.validations.dataModel?.error?.message).toContain("JWT payload 'nonce' does not match challenge")
+    })
+
+    test('fails verification when requested domain is not in aud', async () => {
+      const result = await w3cV2JwtCredentialService.verifyPresentation(agentContext, {
+        presentation: CredoEs256DidKeyJwtVp,
+        challenge: 'daf942ad-816f-45ee-a9fc-facd08e5abca',
+        domain: 'unexpected.example.com',
+      })
+
+      expect(result.isValid).toBe(false)
+      expect(result.presentation.isValid).toBe(false)
+      expect(result.presentation.validations.dataModel?.isValid).toBe(false)
+      expect(result.presentation.validations.dataModel?.error).toBeInstanceOf(CredoError)
+      expect(result.presentation.validations.dataModel?.error?.message).toContain(
+        "JWT payload 'aud' does not include domain 'unexpected.example.com'"
+      )
+    })
   })
 })
