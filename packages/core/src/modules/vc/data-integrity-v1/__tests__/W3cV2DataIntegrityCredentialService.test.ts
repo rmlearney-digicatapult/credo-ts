@@ -185,6 +185,47 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     expect(error?.message).toContain('Unknown top-level @context URL')
   })
 
+  test('verifyCredential runs proof verification before context validation', async () => {
+    const proofService = {
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: false,
+        verifiedDocument: null,
+        mediaType: null,
+        errors: [
+          {
+            type: DataIntegrityProcessingErrorCode.ProofVerificationError,
+            title: 'Proof verification failed',
+          },
+        ],
+      }),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn(),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const result = await service.verifyCredential(
+      {} as never,
+      {
+        credential: {
+          securedCredential: {
+            proof: {
+              type: 'DataIntegrityProof',
+            },
+          },
+        },
+      } as unknown as W3cV2DiVerifyCredentialOptions
+    )
+
+    expect(result.isValid).toBe(false)
+    expect((proofService.verifyProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+    expect((contextPolicyValidator.validate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+  })
+
   test('signCredential rejects invalid VC2 @context before invoking proof service', async () => {
     const proofService = {
       verifyProof: vi.fn(),
@@ -300,6 +341,49 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     expect(error).toBeInstanceOf(CredoError)
     expect(error?.message).toContain('https://w3id.org/security#PROOF_VERIFICATION_ERROR')
     expect(error?.message).toContain('Unsupported proof purpose for verification relationship validation')
+  })
+
+  test('verifyPresentation runs proof verification before context validation', async () => {
+    const proofService = {
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: false,
+        verifiedDocument: null,
+        mediaType: null,
+        errors: [
+          {
+            type: DataIntegrityProcessingErrorCode.ProofVerificationError,
+            title: 'Presentation proof verification failed',
+          },
+        ],
+      }),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn(),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const result = await service.verifyPresentation(
+      {} as never,
+      {
+        challenge: 'challenge',
+        domain: 'example.com',
+        presentation: {
+          securedPresentation: {
+            proof: {
+              type: 'DataIntegrityProof',
+            },
+          },
+        },
+      } as unknown as W3cV2DiVerifyPresentationOptions
+    )
+
+    expect(result.isValid).toBe(false)
+    expect((proofService.verifyProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+    expect((contextPolicyValidator.validate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
   })
 
   test('verifyPresentation rejects JWT credential entries in DI VP path with explicit shape error', async () => {

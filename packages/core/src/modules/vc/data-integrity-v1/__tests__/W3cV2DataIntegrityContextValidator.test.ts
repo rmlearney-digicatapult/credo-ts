@@ -194,7 +194,30 @@ describe('W3cV2DataIntegrityContextValidator (§4.6 Context Validation)', () => 
 
       expect(result.validated).toBe(true)
       expect(result.errors).toHaveLength(0)
+      expect(result.warnings.length).toBeGreaterThanOrEqual(1)
+      expect(result.warnings.some((warning) => warning.title === 'Nested @context detected in document')).toBe(true)
       expect(result.validatedDocument).not.toBeNull()
+    })
+
+    test('with recompact=false, trigger conditions are errors and warnings remain empty', async () => {
+      const strictValidator = new W3cV2DataIntegrityContextValidator().configure({
+        knownContext: VC_V2_KNOWN_CONTEXT,
+        recompactInvalidContexts: false,
+      })
+
+      const result = await strictValidator.validate(agentContext, {
+        '@context': 'https://www.w3.org/ns/credentials/v2',
+        id: 'urn:example:test',
+        credentialSubject: {
+          '@context': 'https://example.org/custom/v1',
+          id: 'did:example:subject',
+        },
+      })
+
+      expect(result.validated).toBe(false)
+      expect(result.errors.some((error) => error.title === 'Nested @context detected in document')).toBe(true)
+      expect(result.warnings).toHaveLength(0)
+      expect(result.validatedDocument).toBeNull()
     })
   })
 

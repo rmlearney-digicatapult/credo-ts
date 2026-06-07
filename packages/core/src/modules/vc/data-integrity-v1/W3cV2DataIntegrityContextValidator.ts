@@ -130,6 +130,9 @@ export class W3cV2DataIntegrityContextValidator {
             documentLoader: await getContextValidationDocumentLoader(),
             compactToRelative: false,
           })) as DataIntegrityUnsecuredDocument
+
+          // Preserve trigger-condition visibility when recompaction succeeds.
+          result.warnings.push(...triggerErrors)
         } catch (error) {
           result.errors.push(
             createProofVerificationIssue(
