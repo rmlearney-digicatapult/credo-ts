@@ -57,13 +57,6 @@ export class W3cV2DataIntegrityCredentialService {
       throw contextValidation.error ?? new CredoError('VC2 credential @context validation failed')
     }
 
-    const firstContext = Array.isArray(unsecuredCredential['@context'])
-      ? unsecuredCredential['@context'][0]
-      : unsecuredCredential['@context']
-    if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
-      throw new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`)
-    }
-
     const proofResult = await this.dataIntegrityProofService.createProof(agentContext, {
       unsecuredDocument: unsecuredCredential,
       verificationMethod: options.verificationMethod,
@@ -139,13 +132,6 @@ export class W3cV2DataIntegrityCredentialService {
     const contextValidation = validateVc2ContextBaseline(unsecuredPresentation['@context'])
     if (!contextValidation.isValid) {
       throw contextValidation.error ?? new CredoError('VC2 presentation @context validation failed')
-    }
-
-    const firstContext = Array.isArray(unsecuredPresentation['@context'])
-      ? unsecuredPresentation['@context'][0]
-      : unsecuredPresentation['@context']
-    if (firstContext !== CREDENTIALS_CONTEXT_V2_URL) {
-      throw new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`)
     }
 
     const proofResult = await this.dataIntegrityProofService.createProof(agentContext, {

@@ -3,7 +3,12 @@ import type { ValidationOptions } from 'class-validator'
 import { buildMessage, isString, isURL, ValidateBy } from 'class-validator'
 import { CredoError } from '../../error'
 import { isJsonObject } from '../../types'
-import { CREDENTIALS_CONTEXT_V1_URL, VERIFIABLE_CREDENTIAL_TYPE, VERIFIABLE_PRESENTATION_TYPE } from './constants'
+import {
+  CREDENTIALS_CONTEXT_V1_URL,
+  CREDENTIALS_CONTEXT_V2_URL,
+  VERIFIABLE_CREDENTIAL_TYPE,
+  VERIFIABLE_PRESENTATION_TYPE,
+} from './constants'
 
 export interface IsCredentialJsonLdContextValidationOptions extends ValidationOptions {
   /**
@@ -118,6 +123,13 @@ export function validateVc2ContextBaseline(context: unknown): ValidationResult {
     return {
       isValid: false,
       error: new CredoError('VC2 @context must not be empty'),
+    }
+  }
+
+  if (contextArray[0] !== CREDENTIALS_CONTEXT_V2_URL) {
+    return {
+      isValid: false,
+      error: new CredoError(`VC2 @context must start with '${CREDENTIALS_CONTEXT_V2_URL}'`),
     }
   }
 
