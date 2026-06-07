@@ -18,8 +18,8 @@ import type {
   W3cV2DiVerifyCredentialOptions,
   W3cV2DiVerifyPresentationOptions,
 } from '../../W3cV2CredentialServiceOptions'
-import type { DataIntegrityContextValidationResult } from '../W3cDataIntegrityContextValidator'
-import { W3cDataIntegrityContextValidator } from '../W3cDataIntegrityContextValidator'
+import type { W3cV2DataIntegrityContextValidationResult } from '../W3cV2DataIntegrityContextValidator'
+import { W3cV2DataIntegrityContextValidator } from '../W3cV2DataIntegrityContextValidator'
 import { W3cV2DataIntegrityCredentialService } from '../W3cV2DataIntegrityCredentialService'
 
 describe('W3cV2DataIntegrityCredentialService', () => {
@@ -49,7 +49,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
         validatedDocument: null,
         warnings: [],
         errors: [],
-      } satisfies DataIntegrityContextValidationResult),
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -100,7 +100,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
         validatedDocument: null,
         warnings: [],
         errors: [],
-      } satisfies DataIntegrityContextValidationResult),
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -160,7 +160,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
         validatedDocument: null,
         warnings: [],
         errors: contextFailure.errors,
-      } satisfies DataIntegrityContextValidationResult),
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -274,7 +274,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
         validatedDocument: { id: 'urn:example:test' },
         warnings: [],
         errors: [],
-      } satisfies DataIntegrityContextValidationResult),
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -383,7 +383,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
   describe('Integration tests against core Data Integrity module', () => {
     let agentContext: AgentContext
     let diProofService: DataIntegrityProofService
-    let diContextValidator: W3cDataIntegrityContextValidator
+    let diContextValidator: W3cV2DataIntegrityContextValidator
     let diCredentialService: W3cV2DataIntegrityCredentialService
     const verificationMethod =
       'did:key:z6MkhaXgBZDvotDkL5257faWxcERCqyLmqwK8PrMUA34yPv1#z6MkhaXgBZDvotDkL5257faWxcERCqyLmqwK8PrMUA34yPv1'
@@ -442,7 +442,7 @@ describe('W3cV2DataIntegrityCredentialService', () => {
       ])
 
       diProofService = new DataIntegrityProofService(cryptosuiteRegistry)
-      diContextValidator = new W3cDataIntegrityContextValidator().configure({
+      diContextValidator = new W3cV2DataIntegrityContextValidator().configure({
         knownContext: ['https://www.w3.org/ns/credentials/v2'],
       })
       diCredentialService = new W3cV2DataIntegrityCredentialService(diProofService, diContextValidator)

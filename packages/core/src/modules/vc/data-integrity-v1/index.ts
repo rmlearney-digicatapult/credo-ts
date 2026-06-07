@@ -1,5 +1,5 @@
-export * from './W3cDataIntegrityContextValidator'
-export * from './W3cDataIntegrityProofPurposeValidator'
+export * from './W3cV2DataIntegrityContextValidator'
+export * from './W3cV2DataIntegrityProofPurposeValidator'
 export * from './W3cV2DataIntegrityCredentialService'
 export * from './W3cV2DataIntegrityIssueMapping'
 export * from './W3cV2DataIntegrityVerifiableCredential'

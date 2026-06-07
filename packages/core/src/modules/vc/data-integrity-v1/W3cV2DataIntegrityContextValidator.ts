@@ -17,14 +17,14 @@ import { getNativeDocumentLoader } from '../jsonld/nativeDocumentLoader'
 /**
  * Output of the VC Data Integrity §4.6 Context Validation algorithm.
  */
-export interface DataIntegrityContextValidationResult {
+export interface W3cV2DataIntegrityContextValidationResult {
   validated: boolean
   validatedDocument: DataIntegrityUnsecuredDocument | null
   warnings: DataIntegrityProcessingIssue[]
   errors: DataIntegrityProcessingIssue[]
 }
 
-export interface W3cDataIntegrityContextValidatorOptions {
+export interface W3cV2DataIntegrityContextValidatorOptions {
   knownContext?: unknown[]
   recompactInvalidContexts?: boolean
 }
@@ -38,7 +38,7 @@ export interface W3cDataIntegrityContextValidatorOptions {
  *   - recompactInvalidContexts: whether to run JSON-LD compaction when §4.6 step 3 trigger conditions are detected
  */
 @injectable()
-export class W3cDataIntegrityContextValidator {
+export class W3cV2DataIntegrityContextValidator {
   private knownContext: unknown[]
   private recompactInvalidContexts: boolean
 
@@ -47,7 +47,7 @@ export class W3cDataIntegrityContextValidator {
     this.recompactInvalidContexts = true
   }
 
-  public configure(options: W3cDataIntegrityContextValidatorOptions) {
+  public configure(options: W3cV2DataIntegrityContextValidatorOptions) {
     this.knownContext = options.knownContext ?? this.knownContext
     this.recompactInvalidContexts = options.recompactInvalidContexts ?? this.recompactInvalidContexts
 
@@ -57,11 +57,11 @@ export class W3cDataIntegrityContextValidator {
   public async validate(
     _agentContext: AgentContext,
     inputDocument: DataIntegrityUnsecuredDocument
-  ): Promise<DataIntegrityContextValidationResult> {
+  ): Promise<W3cV2DataIntegrityContextValidationResult> {
     const validatedDocument = { ...inputDocument }
 
     // §4.6, step 1: initialise result
-    const result: DataIntegrityContextValidationResult = {
+    const result: W3cV2DataIntegrityContextValidationResult = {
       validated: false,
       validatedDocument,
       warnings: [],

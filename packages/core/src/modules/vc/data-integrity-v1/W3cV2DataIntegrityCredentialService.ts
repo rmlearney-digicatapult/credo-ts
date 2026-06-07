@@ -22,20 +22,20 @@ import type {
   W3cV2DiVerifyCredentialOptions,
   W3cV2DiVerifyPresentationOptions,
 } from '../W3cV2CredentialServiceOptions'
-import { W3cDataIntegrityContextValidator } from './W3cDataIntegrityContextValidator'
-import { W3cDataIntegrityProofPurposeValidator } from './W3cDataIntegrityProofPurposeValidator'
+import { W3cV2DataIntegrityContextValidator } from './W3cV2DataIntegrityContextValidator'
+import { W3cV2DataIntegrityProofPurposeValidator } from './W3cV2DataIntegrityProofPurposeValidator'
 import { W3cV2DataIntegrityVerifiableCredential } from './W3cV2DataIntegrityVerifiableCredential'
 import { W3cV2DataIntegrityVerifiablePresentation } from './W3cV2DataIntegrityVerifiablePresentation'
 
 @injectable()
 export class W3cV2DataIntegrityCredentialService {
   private dataIntegrityProofService: DataIntegrityProofService
-  private contextValidator: W3cDataIntegrityContextValidator
-  private proofPurposeValidator = new W3cDataIntegrityProofPurposeValidator()
+  private contextValidator: W3cV2DataIntegrityContextValidator
+  private proofPurposeValidator = new W3cV2DataIntegrityProofPurposeValidator()
 
   public constructor(
     dataIntegrityProofService: DataIntegrityProofService,
-    contextValidator: W3cDataIntegrityContextValidator
+    contextValidator: W3cV2DataIntegrityContextValidator
   ) {
     this.dataIntegrityProofService = dataIntegrityProofService
     this.contextValidator = contextValidator
