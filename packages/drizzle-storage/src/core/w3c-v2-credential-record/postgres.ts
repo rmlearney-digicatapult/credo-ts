@@ -24,6 +24,7 @@ export const w3cV2Credential = pgTable(
     types: text().array().notNull(),
     givenId: text('given_id'),
     claimFormat: w3cV2CredentialClaimFormat('claim_format').notNull(),
+    cryptosuites: text().array(),
     algs: text().array(),
 
     multiInstanceState: credentialMultiInstanceStateEnum('multi_instance_state')
