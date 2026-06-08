@@ -11,17 +11,11 @@ import {
 } from '../sd-jwt-vc/__tests__/fixtures/credo-sd-jwt-vc'
 import { W3cV2SdJwtVerifiablePresentation } from '../sd-jwt-vc/W3cV2SdJwtVerifiablePresentation'
 import { W3cV2CredentialService } from '../W3cV2CredentialService'
-import {
-  staticDiCredential,
-  staticJwtCredential,
-  staticSdJwtCredential,
-  vpMatrixFixtureByName,
-} from './mixedVpFixture'
+import { staticDiCredential, staticJwtCredential, staticSdJwtCredential, vpMatrixFixtureByName } from './mixedVpFixture'
 
-function composePresentationWithEntries<T extends { resolvedPresentation: { verifiableCredential: unknown[] } }>(
-  basePresentation: T,
-  verifiableCredential: T['resolvedPresentation']['verifiableCredential']
-) {
+function composePresentationWithEntries<
+  T extends { resolvedPresentation: { verifiableCredential: ReadonlyArray<unknown> } },
+>(basePresentation: T, verifiableCredential: T['resolvedPresentation']['verifiableCredential']) {
   const resolvedPresentation = {
     ...basePresentation.resolvedPresentation,
     verifiableCredential,
@@ -31,7 +25,7 @@ function composePresentationWithEntries<T extends { resolvedPresentation: { veri
   return {
     __proto__: Object.getPrototypeOf(basePresentation),
     resolvedPresentation,
-  } as T
+  } as unknown as T
 }
 
 const mixedDiOuterVp = composePresentationWithEntries(vpMatrixFixtureByName.outerDi_innerNestedJwtVp.presentation, [
@@ -41,11 +35,7 @@ const mixedDiOuterVp = composePresentationWithEntries(vpMatrixFixtureByName.oute
 
 const mixedDiOuterVpWithAllEntries = composePresentationWithEntries(
   vpMatrixFixtureByName.outerDi_innerNestedJwtVp.presentation,
-  [
-  staticJwtCredential,
-  staticSdJwtCredential,
-  staticDiCredential,
-  ]
+  [staticJwtCredential, staticSdJwtCredential, staticDiCredential]
 )
 
 const mixedDiOnlyOuterVp = composePresentationWithEntries(vpMatrixFixtureByName.outerDi_innerNestedJwtVp.presentation, [
@@ -282,7 +272,11 @@ describe('W3cV2CredentialService routing', () => {
       presentation: { isValid: true, validations: {} },
       credentialEntries: [],
     })
-    jwtService.verifyCredential.mockResolvedValue({ isValid: false, validations: {}, error: new CredoError('bad jwt vc') })
+    jwtService.verifyCredential.mockResolvedValue({
+      isValid: false,
+      validations: {},
+      error: new CredoError('bad jwt vc'),
+    })
     sdJwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
 
     const result = await service.verifyPresentation(agentContext, {
@@ -583,7 +577,9 @@ describe('W3cV2CredentialService routing', () => {
 
     expect(jwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBe(mixedNestedOuterJwtVpWithNestedSdJwt)
     expect(jwtService.verifyPresentation).toHaveBeenCalledTimes(1)
-    expect(sdJwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBeInstanceOf(W3cV2SdJwtVerifiablePresentation)
+    expect(sdJwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBeInstanceOf(
+      W3cV2SdJwtVerifiablePresentation
+    )
     expect(sdJwtService.verifyPresentation).toHaveBeenCalledTimes(1)
     expect(jwtService.verifyCredential).not.toHaveBeenCalled()
     expect(sdJwtService.verifyCredential).toHaveBeenCalledTimes(1)
@@ -635,7 +631,9 @@ describe('W3cV2CredentialService routing', () => {
     } as never)
 
     expect(sdJwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBe(mixedNestedOuterSdJwtVpWithNestedSdJwt)
-    expect(sdJwtService.verifyPresentation.mock.calls[1]?.[1].presentation).toBeInstanceOf(W3cV2SdJwtVerifiablePresentation)
+    expect(sdJwtService.verifyPresentation.mock.calls[1]?.[1].presentation).toBeInstanceOf(
+      W3cV2SdJwtVerifiablePresentation
+    )
     expect(sdJwtService.verifyPresentation).toHaveBeenCalledTimes(2)
     expect(jwtService.verifyPresentation).not.toHaveBeenCalled()
     expect(jwtService.verifyCredential).not.toHaveBeenCalled()
@@ -692,7 +690,9 @@ describe('W3cV2CredentialService routing', () => {
     } as never)
 
     expect(diService.verifyPresentation).toHaveBeenCalledTimes(1)
-    expect(sdJwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBeInstanceOf(W3cV2SdJwtVerifiablePresentation)
+    expect(sdJwtService.verifyPresentation.mock.calls[0]?.[1].presentation).toBeInstanceOf(
+      W3cV2SdJwtVerifiablePresentation
+    )
     expect(sdJwtService.verifyPresentation).toHaveBeenCalledTimes(1)
     expect(jwtService.verifyPresentation).not.toHaveBeenCalled()
     expect(jwtService.verifyCredential).not.toHaveBeenCalled()

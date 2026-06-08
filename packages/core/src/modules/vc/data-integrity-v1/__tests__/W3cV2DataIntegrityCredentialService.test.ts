@@ -13,7 +13,6 @@ import {
   EddsaJcs2022Cryptosuite,
 } from '../../../w3c-di/internal'
 import { ClaimFormat } from '../../models'
-import { CredoDidKeyDiExampleCredentialToSign } from './fixtures/credo-di-vc'
 import type {
   W3cV2DiVerifyCredentialOptions,
   W3cV2DiVerifyPresentationOptions,
@@ -21,6 +20,7 @@ import type {
 import type { W3cV2DataIntegrityContextValidationResult } from '../W3cV2DataIntegrityContextValidator'
 import { W3cV2DataIntegrityContextValidator } from '../W3cV2DataIntegrityContextValidator'
 import { W3cV2DataIntegrityCredentialService } from '../W3cV2DataIntegrityCredentialService'
+import { CredoDidKeyDiExampleCredentialToSign } from './fixtures/credo-di-vc'
 
 describe('W3cV2DataIntegrityCredentialService', () => {
   type SignedCredential = {

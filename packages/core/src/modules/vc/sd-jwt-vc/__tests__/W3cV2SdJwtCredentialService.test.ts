@@ -611,7 +611,9 @@ describe('W3cV2SdJwtCredentialService', () => {
       expect(result.presentation.isValid).toBe(false)
       expect(result.presentation.validations.dataModel?.isValid).toBe(false)
       expect(result.presentation.validations.dataModel?.error).toBeInstanceOf(CredoError)
-      expect(result.presentation.validations.dataModel?.error?.message).toContain("JWT payload 'nonce' does not match challenge")
+      expect(result.presentation.validations.dataModel?.error?.message).toContain(
+        "JWT payload 'nonce' does not match challenge"
+      )
     })
 
     test('fails verification when requested domain is not in aud', async () => {
