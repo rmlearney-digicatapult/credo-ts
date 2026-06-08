@@ -111,6 +111,13 @@ export interface W3cV2SdJwtSignCredentialOptions extends W3cV2SignCredentialOpti
 
 interface W3cV2VerifyCredentialOptionsBase {
   credential: unknown
+
+  /**
+   * Whether to verify credentialStatus, if present.
+   *
+   * When false/undefined, VC2 verification does not fail on credentialStatus presence.
+   */
+  verifyCredentialStatus?: boolean
 }
 
 export interface W3cV2JwtVerifyCredentialOptions extends W3cV2VerifyCredentialOptionsBase {

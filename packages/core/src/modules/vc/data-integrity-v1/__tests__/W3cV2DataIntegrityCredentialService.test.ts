@@ -232,6 +232,159 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     expect((contextPolicyValidator.validate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
   })
 
+  test('verifyCredential treats missing credentialStatus as valid in DI path', async () => {
+    const proofService = {
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: true,
+        verifiedDocument: {
+          id: 'urn:example:test',
+        },
+        mediaType: null,
+      }),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const proofPurposeSpy = vi
+      .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
+      .mockResolvedValue(undefined)
+
+    const result = await service.verifyCredential(
+      {} as never,
+      {
+        credential: {
+          securedCredential: {
+            proof: {
+              type: 'DataIntegrityProof',
+            },
+          },
+        },
+      } as unknown as W3cV2DiVerifyCredentialOptions
+    )
+
+    expect(result.isValid).toBe(true)
+    expect(result.validations.credentialStatus?.isValid).toBe(true)
+    proofPurposeSpy.mockRestore()
+  })
+
+  test('verifyCredential allows DI credentialStatus by default when status verification is disabled', async () => {
+    const proofService = {
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: true,
+        verifiedDocument: {
+          id: 'urn:example:test',
+        },
+        mediaType: null,
+      }),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const proofPurposeSpy = vi
+      .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
+      .mockResolvedValue(undefined)
+
+    const result = await service.verifyCredential(
+      {} as never,
+      {
+        credential: {
+          securedCredential: {
+            credentialStatus: {
+              id: 'https://example.org/status/1#1',
+              type: 'StatusList2021Entry',
+              statusListCredential: 'https://example.org/status/1',
+              statusListIndex: '1',
+            },
+            proof: {
+              type: 'DataIntegrityProof',
+            },
+          },
+        },
+      } as unknown as W3cV2DiVerifyCredentialOptions
+    )
+
+    expect(result.isValid).toBe(true)
+    expect(result.validations.credentialStatus?.isValid).toBe(true)
+    proofPurposeSpy.mockRestore()
+  })
+
+  test('verifyCredential marks DI credentialStatus as unsupported when status verification is enabled', async () => {
+    const proofService = {
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: true,
+        verifiedDocument: {
+          id: 'urn:example:test',
+        },
+        mediaType: null,
+      }),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    } as unknown as DataIntegrityProofService
+
+    const contextPolicyValidator = {
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
+    }
+
+    const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const proofPurposeSpy = vi
+      .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
+      .mockResolvedValue(undefined)
+
+    const result = await service.verifyCredential(
+      {} as never,
+      {
+        verifyCredentialStatus: true,
+        credential: {
+          securedCredential: {
+            credentialStatus: {
+              id: 'https://example.org/status/1#1',
+              type: 'StatusList2021Entry',
+              statusListCredential: 'https://example.org/status/1',
+              statusListIndex: '1',
+            },
+            proof: {
+              type: 'DataIntegrityProof',
+            },
+          },
+        },
+      } as unknown as W3cV2DiVerifyCredentialOptions
+    )
+
+    expect(result.isValid).toBe(false)
+    expect(result.validations.credentialStatus?.isValid).toBe(false)
+    expect(result.validations.credentialStatus?.error?.message).toContain('not supported')
+    expect(result.validations.credentialStatus?.error?.message).toContain('DI')
+    proofPurposeSpy.mockRestore()
+  })
+
   test('signCredential rejects invalid VC2 @context before invoking proof service', async () => {
     const proofService = {
       verifyProof: vi.fn(),

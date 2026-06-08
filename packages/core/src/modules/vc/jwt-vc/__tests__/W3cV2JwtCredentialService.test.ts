@@ -381,7 +381,7 @@ describe('W3cV2JwtCredentialService', () => {
       expect(result.validations.signature?.error?.message).toContain('Invalid JWS signature')
     })
 
-    test('returns invalid result when credentialStatus is present', async () => {
+    test('returns invalid result when credentialStatus is present and verifyCredentialStatus is enabled', async () => {
       const jwtVc = W3cV2JwtVerifiableCredential.fromCompact(CredoEs256DidJwkJwtVc)
 
       jwtVc.resolvedCredential.credentialStatus = new W3cV2CredentialStatus({
@@ -391,6 +391,7 @@ describe('W3cV2JwtCredentialService', () => {
 
       const result = await w3cV2JwtCredentialService.verifyCredential(agentContext, {
         credential: jwtVc,
+        verifyCredentialStatus: true,
       })
 
       expect(result.isValid).toBe(false)

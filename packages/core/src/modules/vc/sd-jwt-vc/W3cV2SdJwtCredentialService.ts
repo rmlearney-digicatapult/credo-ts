@@ -158,6 +158,7 @@ export class W3cV2SdJwtCredentialService {
         validationResults.validations.credentialStatus = validateVc2CredentialStatus({
           credentialStatus: credential.resolvedCredential.credentialStatus,
           credentialFormat: 'SD-JWT',
+          verifyCredentialStatus: options.verifyCredentialStatus,
         })
       } catch (error) {
         validationResults.validations.dataModel = {

@@ -14,7 +14,7 @@ import type { W3cV2VerifiableCredential } from '../models/credential/W3cV2Verifi
 import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 import type { W3cV2VerifiablePresentation } from '../models/presentation/W3cV2VerifiablePresentation'
 import type { W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models/W3cV2VerifyResult'
-import { validateVc2ContextBaseline } from '../validators'
+import { validateVc2ContextBaseline, validateVc2CredentialStatus } from '../validators'
 import type {
   W3cV2DiSignCredentialOptions,
   W3cV2DiSignPresentationOptions,
@@ -107,11 +107,20 @@ export class W3cV2DataIntegrityCredentialService {
       }
     }
 
+    const credentialStatus = validateVc2CredentialStatus({
+      credentialStatus: securedCredential.credentialStatus,
+      credentialFormat: 'DI',
+      verifyCredentialStatus: options.verifyCredentialStatus,
+    })
+
+    const isValid = credentialStatus.isValid
+
     return {
-      isValid: true,
+      isValid,
       validations: {
         dataModel: { isValid: true },
         signature: { isValid: true },
+        credentialStatus,
         issuerIsSigner: { isValid: true },
       },
     }

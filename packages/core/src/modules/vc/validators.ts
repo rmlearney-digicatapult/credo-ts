@@ -152,9 +152,10 @@ export function validateVc2ContextBaseline(context: unknown): ValidationResult {
 
 export function validateVc2CredentialStatus(options: {
   credentialStatus?: unknown
-  credentialFormat: 'JWT' | 'SD-JWT'
+  credentialFormat: 'JWT' | 'SD-JWT' | 'DI'
+  verifyCredentialStatus?: boolean
 }): ValidationResult {
-  if (!options.credentialStatus) {
+  if (!options.verifyCredentialStatus || !options.credentialStatus) {
     return {
       isValid: true,
     }

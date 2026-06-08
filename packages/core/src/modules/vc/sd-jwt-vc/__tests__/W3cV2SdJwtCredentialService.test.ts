@@ -357,7 +357,7 @@ describe('W3cV2SdJwtCredentialService', () => {
       expect(result.validations.dataModel?.error?.message).toContain('JWT expired at 1577836800')
     })
 
-    test('returns invalid result when credentialStatus is present', async () => {
+    test('returns invalid result when credentialStatus is present and verifyCredentialStatus is enabled', async () => {
       const jwtVc = W3cV2SdJwtVerifiableCredential.fromCompact(CredoEs256DidJwkJwtVc)
 
       jwtVc.resolvedCredential.credentialStatus = new W3cV2CredentialStatus({
@@ -367,6 +367,7 @@ describe('W3cV2SdJwtCredentialService', () => {
 
       const result = await w3cV2JwtCredentialService.verifyCredential(agentContext, {
         credential: jwtVc,
+        verifyCredentialStatus: true,
       })
 
       expect(result.isValid).toBe(false)
