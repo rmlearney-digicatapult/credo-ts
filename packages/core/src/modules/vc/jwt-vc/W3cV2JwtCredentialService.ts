@@ -115,6 +115,8 @@ export class W3cV2JwtCredentialService {
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
 
+        this.logCredentialShouldWarnings(agentContext, credential)
+
         validationResults.validations.dataModel = validateVc2ContextBaseline(credential.resolvedCredential.context)
         if (!validationResults.validations.dataModel.isValid) {
           return validationResults
@@ -293,6 +295,8 @@ export class W3cV2JwtCredentialService {
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
 
+        this.logPresentationShouldWarnings(agentContext, presentation)
+
         // Make sure challenge matches nonce
         if (options.challenge !== presentation.jwt.payload.additionalClaims.nonce) {
           throw new CredoError(`JWT payload 'nonce' does not match challenge '${options.challenge}'`)
@@ -385,6 +389,67 @@ export class W3cV2JwtCredentialService {
     } catch (error) {
       validationResults.error = error
       return validationResults
+    }
+  }
+
+  private logCredentialShouldWarnings(agentContext: AgentContext, credential: W3cV2JwtVerifiableCredential) {
+    const payload = credential.jwt.payload
+    const headerIss = credential.jwt.header.iss
+
+    if (typeof headerIss === 'string' && typeof payload.iss === 'string' && headerIss !== payload.iss) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: JOSE header iss conflicts with payload iss', {
+        format: 'vc+jwt',
+        headerIss,
+        payloadIss: payload.iss,
+      })
+    }
+
+    if (
+      typeof payload.jti === 'string' &&
+      credential.resolvedCredential.id &&
+      credential.resolvedCredential.id !== payload.jti
+    ) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: jti claim conflicts with credential id', {
+        format: 'vc+jwt',
+        jti: payload.jti,
+        credentialId: credential.resolvedCredential.id,
+      })
+    }
+
+    if (typeof payload.sub === 'string' && !credential.resolvedCredential.credentialSubjectIds.includes(payload.sub)) {
+      agentContext.config.logger.warn(
+        'VC-JOSE-COSE SHOULD warning: sub claim does not match any credentialSubject.id',
+        {
+          format: 'vc+jwt',
+          sub: payload.sub,
+          credentialSubjectIds: credential.resolvedCredential.credentialSubjectIds,
+        }
+      )
+    }
+  }
+
+  private logPresentationShouldWarnings(agentContext: AgentContext, presentation: W3cV2JwtVerifiablePresentation) {
+    const payload = presentation.jwt.payload
+    const headerIss = presentation.jwt.header.iss
+
+    if (typeof headerIss === 'string' && typeof payload.iss === 'string' && headerIss !== payload.iss) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: JOSE header iss conflicts with payload iss', {
+        format: 'vp+jwt',
+        headerIss,
+        payloadIss: payload.iss,
+      })
+    }
+
+    if (
+      typeof payload.jti === 'string' &&
+      presentation.resolvedPresentation.id &&
+      presentation.resolvedPresentation.id !== payload.jti
+    ) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: jti claim conflicts with presentation id', {
+        format: 'vp+jwt',
+        jti: payload.jti,
+        presentationId: presentation.resolvedPresentation.id,
+      })
     }
   }
 }

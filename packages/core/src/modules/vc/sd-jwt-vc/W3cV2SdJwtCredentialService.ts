@@ -140,6 +140,8 @@ export class W3cV2SdJwtCredentialService {
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
 
+        this.logCredentialShouldWarnings(agentContext, credential)
+
         validationResults.validations.dataModel = validateVc2ContextBaseline(credential.resolvedCredential.context)
         if (!validationResults.validations.dataModel.isValid) {
           return validationResults
@@ -306,6 +308,8 @@ export class W3cV2SdJwtCredentialService {
           skewSeconds: agentContext.config.validitySkewSeconds,
         })
 
+        this.logPresentationShouldWarnings(agentContext, presentation)
+
         // VC-JOSE-COSE: understood claims MUST be evaluated per verifier policy
         // https://www.w3.org/TR/vc-jose-cose/#validation-algorithm
         if (options.challenge !== presentation.sdJwt.prettyClaims.nonce) {
@@ -429,6 +433,67 @@ export class W3cV2SdJwtCredentialService {
     return {
       hasher: sdJwtVcHasher,
       saltGenerator: (length) => TypedArrayEncoder.toBase64Url(kms.randomBytes({ length })).slice(0, length),
+    }
+  }
+
+  private logCredentialShouldWarnings(agentContext: AgentContext, credential: W3cV2SdJwtVerifiableCredential) {
+    const payload = credential.sdJwt.prettyClaims
+    const headerIss = credential.sdJwt.header.iss
+
+    if (typeof headerIss === 'string' && typeof payload.iss === 'string' && headerIss !== payload.iss) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: JOSE header iss conflicts with payload iss', {
+        format: 'vc+sd-jwt',
+        headerIss,
+        payloadIss: payload.iss,
+      })
+    }
+
+    if (
+      typeof payload.jti === 'string' &&
+      credential.resolvedCredential.id &&
+      credential.resolvedCredential.id !== payload.jti
+    ) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: jti claim conflicts with credential id', {
+        format: 'vc+sd-jwt',
+        jti: payload.jti,
+        credentialId: credential.resolvedCredential.id,
+      })
+    }
+
+    if (typeof payload.sub === 'string' && !credential.resolvedCredential.credentialSubjectIds.includes(payload.sub)) {
+      agentContext.config.logger.warn(
+        'VC-JOSE-COSE SHOULD warning: sub claim does not match any credentialSubject.id',
+        {
+          format: 'vc+sd-jwt',
+          sub: payload.sub,
+          credentialSubjectIds: credential.resolvedCredential.credentialSubjectIds,
+        }
+      )
+    }
+  }
+
+  private logPresentationShouldWarnings(agentContext: AgentContext, presentation: W3cV2SdJwtVerifiablePresentation) {
+    const payload = presentation.sdJwt.prettyClaims
+    const headerIss = presentation.sdJwt.header.iss
+
+    if (typeof headerIss === 'string' && typeof payload.iss === 'string' && headerIss !== payload.iss) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: JOSE header iss conflicts with payload iss', {
+        format: 'vp+sd-jwt',
+        headerIss,
+        payloadIss: payload.iss,
+      })
+    }
+
+    if (
+      typeof payload.jti === 'string' &&
+      presentation.resolvedPresentation.id &&
+      presentation.resolvedPresentation.id !== payload.jti
+    ) {
+      agentContext.config.logger.warn('VC-JOSE-COSE SHOULD warning: jti claim conflicts with presentation id', {
+        format: 'vp+sd-jwt',
+        jti: payload.jti,
+        presentationId: presentation.resolvedPresentation.id,
+      })
     }
   }
 }
