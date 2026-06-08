@@ -8,6 +8,7 @@ import {
   type W3cDataIntegrityProcessingIssue as DataIntegrityProcessingIssue,
   type W3cDataIntegrityUnsecuredDocument as DataIntegrityUnsecuredDocument,
 } from '../../w3c-di/internal'
+import { omitUndefinedFields } from '../../w3c-di/proof-processing/normalisation'
 import { CREDENTIALS_CONTEXT_V2_URL } from '../constants'
 import { DEFAULT_CONTEXTS, DI_SPEC_CONTEXT_HASHES } from '../jsonld/contexts'
 import type { DocumentLoader } from '../jsonld/jsonld'
@@ -58,7 +59,8 @@ export class W3cV2DataIntegrityContextValidator {
     _agentContext: AgentContext,
     inputDocument: DataIntegrityUnsecuredDocument
   ): Promise<W3cV2DataIntegrityContextValidationResult> {
-    const validatedDocument = { ...inputDocument }
+    const normalisedInputDocument = omitUndefinedFields(inputDocument)
+    const validatedDocument = { ...normalisedInputDocument }
 
     // §4.6, step 1: initialise result
     const result: W3cV2DataIntegrityContextValidationResult = {
@@ -126,7 +128,7 @@ export class W3cV2DataIntegrityContextValidator {
     if (triggerErrors.length > 0) {
       if (this.recompactInvalidContexts) {
         try {
-          result.validatedDocument = (await jsonld.compact(inputDocument, this.knownContext, {
+          result.validatedDocument = (await jsonld.compact(normalisedInputDocument, this.knownContext, {
             documentLoader: await getContextValidationDocumentLoader(),
             compactToRelative: false,
           })) as DataIntegrityUnsecuredDocument

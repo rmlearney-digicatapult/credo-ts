@@ -199,6 +199,27 @@ describe('W3cV2DataIntegrityContextValidator (§4.6 Context Validation)', () => 
       expect(result.validatedDocument).not.toBeNull()
     })
 
+    test('recompaction tolerates id set to undefined on DI documents and does not raise JSON-LD @id errors', async () => {
+      const recompactingValidator = new W3cV2DataIntegrityContextValidator().configure({
+        knownContext: VC_V2_KNOWN_CONTEXT,
+      })
+
+      const result = await recompactingValidator.validate(agentContext, {
+        '@context': 'https://www.w3.org/ns/credentials/v2',
+        id: undefined,
+        proof: {
+          type: 'DataIntegrityProof',
+          '@context': 'https://example.org/evil/v1',
+          cryptosuite: 'eddsa-rdfc-2022',
+        },
+      })
+
+      expect(result.validated).toBe(true)
+      expect(result.errors).toHaveLength(0)
+      expect(result.warnings.some((warning) => warning.title === 'Nested @context detected in document')).toBe(true)
+      expect(result.validatedDocument).not.toBeNull()
+    })
+
     test('with recompact=false, trigger conditions are errors and warnings remain empty', async () => {
       const strictValidator = new W3cV2DataIntegrityContextValidator().configure({
         knownContext: VC_V2_KNOWN_CONTEXT,
