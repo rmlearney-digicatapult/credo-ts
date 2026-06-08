@@ -1,7 +1,7 @@
 import type { AgentContext } from '../../../agent/context'
 import { CredoError } from '../../../error'
 import { injectable } from '../../../plugins'
-import { asArray, JsonTransformer, MessageValidator } from '../../../utils'
+import { JsonTransformer, MessageValidator } from '../../../utils'
 import {
   createW3cDataIntegrityCredoError as createDataIntegrityCredoError,
   type W3cDataIntegrityIssueList as DataIntegrityIssueList,
@@ -10,7 +10,6 @@ import {
 import { CREDENTIALS_CONTEXT_V2_URL } from '../constants'
 import { ClaimFormat } from '../models/ClaimFormat'
 import { W3cV2Credential } from '../models/credential/W3cV2Credential'
-import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
 import type { W3cV2VerifiableCredential } from '../models/credential/W3cV2VerifiableCredential'
 import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 import type { W3cV2VerifiablePresentation } from '../models/presentation/W3cV2VerifiablePresentation'
@@ -166,11 +165,6 @@ export class W3cV2DataIntegrityCredentialService {
   ): Promise<W3cV2VerifyPresentationResult> {
     const securedPresentation = options.presentation.securedPresentation
 
-    const credentialShapeError = this.getCredentialShapeError(options)
-    if (credentialShapeError) {
-      return this.invalidPresentationResult('dataModel', credentialShapeError)
-    }
-
     const verificationResult = Array.isArray(securedPresentation.proof)
       ? await this.dataIntegrityProofService.verifyProofSetAndChain(agentContext, securedPresentation as never, {
           expectedProofPurpose: 'authentication',
@@ -262,32 +256,4 @@ export class W3cV2DataIntegrityCredentialService {
     }
   }
 
-  private getCredentialShapeError(options: W3cV2DiVerifyPresentationOptions): CredoError | null {
-    const verifiableCredential = options.presentation.resolvedPresentation?.verifiableCredential
-    if (!verifiableCredential) {
-      return null
-    }
-
-    const credentials = asArray(verifiableCredential)
-
-    for (const credential of credentials) {
-      if (credential instanceof W3cV2DataIntegrityVerifiableCredential) continue
-
-      const claimFormat =
-        credential instanceof W3cV2EnvelopedVerifiableCredential
-          ? credential.claimFormat
-          : typeof credential === 'object' &&
-              credential !== null &&
-              'claimFormat' in credential &&
-              typeof credential.claimFormat === 'string'
-            ? credential.claimFormat
-            : 'unknown'
-
-      return new CredoError(
-        `Unsupported credential entry shape '${claimFormat}' in DI VP verification path. Presentations in DI format must contain embedded DI credentials.`
-      )
-    }
-
-    return null
-  }
 }

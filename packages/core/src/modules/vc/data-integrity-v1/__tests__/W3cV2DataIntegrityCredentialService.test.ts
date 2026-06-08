@@ -20,6 +20,7 @@ import type {
 import type { W3cV2DataIntegrityContextValidationResult } from '../W3cV2DataIntegrityContextValidator'
 import { W3cV2DataIntegrityContextValidator } from '../W3cV2DataIntegrityContextValidator'
 import { W3cV2DataIntegrityCredentialService } from '../W3cV2DataIntegrityCredentialService'
+import { W3cV2DataIntegrityProofPurposeValidator } from '../W3cV2DataIntegrityProofPurposeValidator'
 import { CredoDidKeyDiExampleCredentialToSign } from './fixtures/credo-di-vc'
 
 describe('W3cV2DataIntegrityCredentialService', () => {
@@ -203,7 +204,12 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     } as unknown as DataIntegrityProofService
 
     const contextPolicyValidator = {
-      validate: vi.fn(),
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -234,7 +240,12 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     } as unknown as DataIntegrityProofService
 
     const contextPolicyValidator = {
-      validate: vi.fn(),
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -273,7 +284,12 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     } as unknown as DataIntegrityProofService
 
     const contextPolicyValidator = {
-      validate: vi.fn(),
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -361,7 +377,12 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     } as unknown as DataIntegrityProofService
 
     const contextPolicyValidator = {
-      validate: vi.fn(),
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
@@ -386,18 +407,33 @@ describe('W3cV2DataIntegrityCredentialService', () => {
     expect((contextPolicyValidator.validate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
   })
 
-  test('verifyPresentation rejects JWT credential entries in DI VP path with explicit shape error', async () => {
+  test('verifyPresentation does not reject JWT credential entries by shape in DI VP path', async () => {
     const proofService = {
-      verifyProof: vi.fn(),
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: true,
+        verifiedDocument: {
+          id: 'urn:example:test',
+        },
+        mediaType: null,
+      }),
       verifyProofSetAndChain: vi.fn(),
       createProof: vi.fn(),
     } as unknown as DataIntegrityProofService
 
     const contextPolicyValidator = {
-      validate: vi.fn(),
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const proofPurposeSpy = vi
+      .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
+      .mockResolvedValue(undefined)
 
     const result = await service.verifyPresentation(
       {} as never,
@@ -416,28 +452,40 @@ describe('W3cV2DataIntegrityCredentialService', () => {
       } as unknown as W3cV2DiVerifyPresentationOptions
     )
 
-    expect(result.isValid).toBe(false)
-    expect(result.presentation.validations.dataModel?.isValid).toBe(false)
-    const error = result.presentation.validations.dataModel?.error
-    expect(error).toBeInstanceOf(CredoError)
-    expect(error?.message).toContain(`Unsupported credential entry shape '${ClaimFormat.JwtW3cVc}'`)
-    expect(error?.message).toContain('Presentations in DI format must contain embedded DI credentials.')
-    expect((proofService.verifyProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+    expect(result.isValid).toBe(true)
+    expect((proofService.verifyProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
     expect((proofService.verifyProofSetAndChain as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+    expect((contextPolicyValidator.validate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+    proofPurposeSpy.mockRestore()
   })
 
-  test('verifyPresentation rejects unknown credential entry shapes in DI VP path with explicit shape error', async () => {
+  test('verifyPresentation does not reject unknown credential entry shapes by shape in DI VP path', async () => {
     const proofService = {
-      verifyProof: vi.fn(),
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: true,
+        verifiedDocument: {
+          id: 'urn:example:test',
+        },
+        mediaType: null,
+      }),
       verifyProofSetAndChain: vi.fn(),
       createProof: vi.fn(),
     } as unknown as DataIntegrityProofService
 
     const contextPolicyValidator = {
-      validate: vi.fn(),
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      } satisfies W3cV2DataIntegrityContextValidationResult),
     }
 
     const service = new W3cV2DataIntegrityCredentialService(proofService, contextPolicyValidator as never)
+
+    const proofPurposeSpy = vi
+      .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
+      .mockResolvedValue(undefined)
 
     const result = await service.verifyPresentation(
       {} as never,
@@ -456,12 +504,11 @@ describe('W3cV2DataIntegrityCredentialService', () => {
       } as unknown as W3cV2DiVerifyPresentationOptions
     )
 
-    expect(result.isValid).toBe(false)
-    expect(result.presentation.validations.dataModel?.isValid).toBe(false)
-    const error = result.presentation.validations.dataModel?.error
-    expect(error).toBeInstanceOf(CredoError)
-    expect(error?.message).toContain("Unsupported credential entry shape 'unknown'")
-    expect(error?.message).toContain('Presentations in DI format must contain embedded DI credentials.')
+    expect(result.isValid).toBe(true)
+    expect((proofService.verifyProof as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+    expect((proofService.verifyProofSetAndChain as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0)
+    expect((contextPolicyValidator.validate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+    proofPurposeSpy.mockRestore()
   })
 
   describe('Integration tests against core Data Integrity module', () => {

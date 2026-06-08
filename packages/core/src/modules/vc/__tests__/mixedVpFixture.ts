@@ -108,6 +108,7 @@ function buildOuterSdJwtVp(entries: ReadonlyArray<unknown>, mutable: MutableVpMe
 function buildOuterDiVp(entries: ReadonlyArray<unknown>, mutable: MutableVpMetadata) {
   return {
     __proto__: W3cV2DataIntegrityVerifiablePresentation.prototype,
+    securedPresentation: CredoDidKeyDiVp,
     resolvedPresentation: buildResolvedPresentation(entries, mutable),
   } as const
 }

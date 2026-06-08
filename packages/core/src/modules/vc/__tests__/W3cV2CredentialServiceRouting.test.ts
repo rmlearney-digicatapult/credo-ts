@@ -1,5 +1,10 @@
 import { CredoError } from '../../../error'
-import { W3cV2DataIntegrityVerifiableCredential, W3cV2DataIntegrityVerifiablePresentation } from '../data-integrity-v1'
+import {
+  W3cV2DataIntegrityCredentialService,
+  W3cV2DataIntegrityProofPurposeValidator,
+  W3cV2DataIntegrityVerifiableCredential,
+  W3cV2DataIntegrityVerifiablePresentation,
+} from '../data-integrity-v1'
 import { W3cV2JwtVerifiablePresentation } from '../jwt-vc'
 import { CredoEs256DidJwkJwtVc, CredoEs256DidKeyJwtVp } from '../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
 import { W3cV2JwtVerifiableCredential } from '../jwt-vc/W3cV2JwtVerifiableCredential'
@@ -24,6 +29,7 @@ function composePresentationWithEntries<
 
   return {
     __proto__: Object.getPrototypeOf(basePresentation),
+    ...basePresentation,
     resolvedPresentation,
   } as unknown as T
 }
@@ -312,6 +318,58 @@ describe('W3cV2CredentialService routing', () => {
     expect(result.credentialEntries).toHaveLength(1)
     expect(result.credentialEntries[0]?.isValid).toBe(true)
     expect(result.isValid).toBe(true)
+  })
+
+  test('verifyPresentation accepts mixed-entry DI outer VP through real DI service boundary and routes entries by format', async () => {
+    const proofService = {
+      verifyProof: vi.fn().mockResolvedValue({
+        verified: true,
+        verifiedDocument: null,
+        mediaType: null,
+      }),
+      verifyProofSetAndChain: vi.fn(),
+      createProof: vi.fn(),
+    }
+
+    const contextPolicyValidator = {
+      validate: vi.fn().mockResolvedValue({
+        validated: true,
+        validatedDocument: null,
+        warnings: [],
+        errors: [],
+      }),
+    }
+
+    const realDiService = new W3cV2DataIntegrityCredentialService(proofService as never, contextPolicyValidator as never)
+    const proofPurposeSpy = vi
+      .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
+      .mockResolvedValue(undefined)
+
+    const serviceWithRealDi = new W3cV2CredentialService(
+      repository as never,
+      sdJwtService as never,
+      jwtService as never,
+      realDiService
+    )
+
+    jwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+    sdJwtService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
+
+    const result = await serviceWithRealDi.verifyPresentation(agentContext, {
+      presentation: mixedDiOuterVp,
+      challenge: 'challenge-123',
+    } as never)
+
+    expect(result.isValid).toBe(true)
+    expect(result.presentation.isValid).toBe(true)
+    expect(result.credentialEntries).toHaveLength(2)
+    expect(result.credentialEntries[0]?.isValid).toBe(true)
+    expect(result.credentialEntries[1]?.isValid).toBe(true)
+    expect(proofService.verifyProof).toHaveBeenCalledTimes(1)
+    expect(proofService.verifyProofSetAndChain).not.toHaveBeenCalled()
+    expect(jwtService.verifyCredential).toHaveBeenCalledTimes(1)
+    expect(sdJwtService.verifyCredential).toHaveBeenCalledTimes(1)
+    proofPurposeSpy.mockRestore()
   })
 
   test('non-DI signCredential routes to jwt service unchanged', async () => {
@@ -728,22 +786,28 @@ describe('W3cV2CredentialService routing', () => {
     expect(result.isValid).toBe(true)
   })
 
-  test('verifyPresentation marks nested DI VP entry invalid under non-DI outer VP', async () => {
+  test('verifyPresentation routes nested DI VP entries under non-DI outer VP by shape', async () => {
     jwtService.verifyPresentation.mockResolvedValue({
       isValid: true,
       presentation: { isValid: true, validations: {} },
       credentialEntries: [],
     })
+    diService.verifyPresentation.mockResolvedValue({
+      isValid: true,
+      presentation: { isValid: true, validations: {} },
+      credentialEntries: [],
+    })
+    diService.verifyCredential.mockResolvedValue({ isValid: true, validations: {}, error: undefined })
 
     const result = await service.verifyPresentation(agentContext, {
       presentation: mixedNestedOuterJwtVpWithNestedDi,
       challenge: 'challenge-123',
     } as never)
 
-    expect(diService.verifyPresentation).not.toHaveBeenCalled()
+    expect(diService.verifyPresentation).toHaveBeenCalledTimes(1)
+    expect(diService.verifyCredential).toHaveBeenCalledTimes(1)
     expect(result.credentialEntries).toHaveLength(1)
-    expect(result.credentialEntries[0]?.isValid).toBe(false)
-    expect(result.credentialEntries[0]?.error).toBeInstanceOf(CredoError)
-    expect(result.isValid).toBe(false)
+    expect(result.credentialEntries[0]?.isValid).toBe(true)
+    expect(result.isValid).toBe(true)
   })
 })

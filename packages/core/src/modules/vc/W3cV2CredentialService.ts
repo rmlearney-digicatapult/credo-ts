@@ -51,10 +51,6 @@ import type {
   W3cV2VerifyPresentationOptions,
 } from './W3cV2CredentialServiceOptions'
 
-type VerifyPresentationRequestContext = Pick<W3cV2VerifyPresentationOptions, 'challenge' | 'domain'> & {
-  allowNestedDiPresentation: boolean
-}
-
 @injectable()
 export class W3cV2CredentialService {
   private w3cV2CredentialRepository: W3cV2CredentialRepository
@@ -298,7 +294,6 @@ export class W3cV2CredentialService {
           this.verifyPresentationEntry(agentContext, entry, signerId, {
             challenge: options.challenge,
             domain: options.domain,
-            allowNestedDiPresentation: presentation instanceof W3cV2DataIntegrityVerifiablePresentation,
           })
         )
       )
@@ -314,17 +309,9 @@ export class W3cV2CredentialService {
     agentContext: AgentContext,
     entry: W3cV2PresentationCredentialEntry,
     signerId: string,
-    presentationContext: VerifyPresentationRequestContext
+    presentationContext: Pick<W3cV2VerifyPresentationOptions, 'challenge' | 'domain'>
   ): Promise<W3cV2PresentationCredentialEntryResult[]> {
     if (entry instanceof W3cV2DataIntegrityVerifiablePresentation) {
-      if (!presentationContext.allowNestedDiPresentation) {
-        return [
-          this.createInvalidCredentialEntryResult(
-            new CredoError("Nested presentation entry uses 'di_vp' outside a DI outer presentation.")
-          ),
-        ]
-      }
-
       const nestedPresentationResult = await this.w3cV2DataIntegrityCredentialService.verifyPresentation(agentContext, {
         challenge: presentationContext.challenge,
         domain: presentationContext.domain,
