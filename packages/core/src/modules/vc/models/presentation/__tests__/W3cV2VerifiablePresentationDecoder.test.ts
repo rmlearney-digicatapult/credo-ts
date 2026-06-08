@@ -1,4 +1,6 @@
 import { CredoError } from '../../../../../error'
+import { JsonEncoder } from '../../../../../utils/JsonEncoder'
+import { TypedArrayEncoder } from '../../../../../utils/TypedArrayEncoder'
 import { W3cV2DataIntegrityVerifiablePresentation } from '../../../data-integrity-v1'
 import { W3cV2JwtVerifiablePresentation } from '../../../jwt-vc'
 import { CredoEs256DidKeyJwtVp } from '../../../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
@@ -17,6 +19,14 @@ describe('decodeW3cV2VerifiablePresentation', () => {
     expect(result.claimFormat).toBe(ClaimFormat.DiVp)
   })
 
+  test('rejects proof-only JSON payload without VP type semantics', () => {
+    expect(() =>
+      decodeW3cV2VerifiablePresentation(
+        '{"@context":["https://www.w3.org/ns/credentials/v2"],"type":["VerifiableCredential"],"proof":{"type":"DataIntegrityProof"}}'
+      )
+    ).toThrow(CredoError)
+  })
+
   test('accepts envelope-first vp+jwt data URI encoding', () => {
     const result = decodeW3cV2VerifiablePresentation(`data:application/vp+jwt,${CredoEs256DidKeyJwtVp}`)
 
@@ -32,4 +42,26 @@ describe('decodeW3cV2VerifiablePresentation', () => {
   test('rejects unsupported data URI encoding for presentation', () => {
     expect(() => decodeW3cV2VerifiablePresentation('data:application/vp+cose,ZmFrZQ')).toThrow(CredoError)
   })
+
+  test('rejects vc+sd-jwt compact token in VP decode path', () => {
+    const compact = `${toCompactHeader({ alg: 'ES256', typ: 'vc+sd-jwt' })}~disclosure`
+
+    expect(() => decodeW3cV2VerifiablePresentation(compact)).toThrow(
+      'Value is a W3C SD-JWT VC, but a W3C SD-JWT VP was expected'
+    )
+  })
+
+  test('does not fall back from malformed sd-jwt shape to jwt parsing', () => {
+    expect(() => decodeW3cV2VerifiablePresentation('not-a-jwt~still-not-a-jwt')).toThrow(
+      "Expected compact 'vp+sd-jwt'"
+    )
+  })
 })
+
+function toCompactHeader(header: Record<string, unknown>) {
+  const encodedHeader = JsonEncoder.toBase64Url(header)
+  const encodedPayload = JsonEncoder.toBase64Url({ iss: 'did:example:holder' })
+  const encodedSignature = TypedArrayEncoder.toBase64Url(TypedArrayEncoder.fromUtf8String('signature'))
+
+  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`
+}

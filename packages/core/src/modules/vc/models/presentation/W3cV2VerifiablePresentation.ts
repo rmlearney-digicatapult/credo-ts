@@ -1,5 +1,6 @@
 import { Transform, TransformationType } from 'class-transformer'
 import { ValidationError } from 'class-validator'
+import { Jwt } from '../../../../crypto/jose/jwt/Jwt'
 import { ClassValidationError, CredoError } from '../../../../error'
 import type { SingleOrArray } from '../../../../types'
 import { JsonTransformer } from '../../../../utils'
@@ -10,33 +11,8 @@ import {
 import { W3cV2JwtVerifiablePresentation, type W3cV2JwtVerifiablePresentationOptions } from '../../jwt-vc'
 import { W3cV2SdJwtVerifiablePresentation, type W3cV2SdJwtVerifiablePresentationOptions } from '../../sd-jwt-vc'
 import { ClaimFormat } from '../ClaimFormat'
-import { W3cV2Presentation } from './W3cV2Presentation'
-
-export const decodeW3cV2EnvelopedVerifiablePresentation = (value: string) => {
-  if (!value.startsWith('data:')) {
-    throw new CredoError('Invalid Enveloped Verifiable Presentation: "id" is not a valid data URI')
-  }
-
-  const mimetypeData = value.slice(5)
-  const commaIndex = mimetypeData.indexOf(',')
-  if (commaIndex === -1) {
-    throw new CredoError('Invalid Enveloped Verifiable Presentation: "id" data URI is missing comma separator')
-  }
-
-  const mimetype = mimetypeData.slice(0, commaIndex)
-  const data = mimetypeData.slice(commaIndex + 1)
-
-  switch (mimetype) {
-    case 'application/vp+sd-jwt':
-      return W3cV2SdJwtVerifiablePresentation.fromCompact(data)
-
-    case 'application/vp+jwt':
-      return W3cV2JwtVerifiablePresentation.fromCompact(data)
-
-    default:
-      throw new CredoError(`Unsupported Enveloped Verifiable Presentation: ${mimetype} not recognized`)
-  }
-}
+import { presentationFromDataUri } from './W3cV2EnvelopedVerifiablePresentation'
+import { isEmbeddedDataIntegrityPresentationEntry, W3cV2Presentation } from './W3cV2Presentation'
 
 export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
   try {
@@ -48,7 +24,7 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
 
     try {
       const parsedJson = JSON.parse(trimmedValue)
-      if (isEmbeddedDataIntegrityPresentation(parsedJson)) {
+      if (isEmbeddedDataIntegrityPresentationEntry(parsedJson)) {
         return new W3cV2DataIntegrityVerifiablePresentation({
           securedPresentation: parsedJson,
           resolvedPresentation: JsonTransformer.fromJSON(parsedJson, W3cV2Presentation, { validate: false }),
@@ -58,19 +34,28 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
       // Not JSON; continue with envelope/compact encodings.
     }
 
-    if (trimmedValue.startsWith('data:')) return decodeW3cV2EnvelopedVerifiablePresentation(trimmedValue)
+    if (trimmedValue.startsWith('data:')) return presentationFromDataUri(trimmedValue)
 
-    try {
-      return W3cV2JwtVerifiablePresentation.fromCompact(trimmedValue)
-    } catch {
-      // Not a VP JWT compact string; continue with VP SD-JWT.
-    }
+    const issuerSignedCompact = trimmedValue.split('~')[0]
+    if (issuerSignedCompact !== trimmedValue) {
+      if (!Jwt.format.test(issuerSignedCompact)) {
+        throw new CredoError("Unsupported presentation string encoding. Expected compact 'vp+sd-jwt'.")
+      }
 
-    try {
+      const typ = Jwt.fromSerializedJwt(issuerSignedCompact).header.typ
+
+      if (typ === 'vc+sd-jwt' || typ === 'dc+sd-jwt') {
+        throw new CredoError('Value is a W3C SD-JWT VC, but a W3C SD-JWT VP was expected')
+      }
+
+      if (typ && typ !== 'vp+sd-jwt') {
+        throw new CredoError(`Unsupported W3C SD-JWT VP typ '${typ}'. Expected 'vp+sd-jwt'.`)
+      }
+
       return W3cV2SdJwtVerifiablePresentation.fromCompact(trimmedValue)
-    } catch {
-      throw new CredoError("Unsupported presentation string encoding. Expected compact 'vp+jwt' or 'vp+sd-jwt'.")
     }
+
+    return W3cV2JwtVerifiablePresentation.fromCompact(trimmedValue)
   } catch (error) {
     if (error instanceof ValidationError || error instanceof ClassValidationError) {
       throw error
@@ -78,14 +63,6 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
 
     throw new CredoError(`Value '${value}' is not a valid W3cV2VerifiablePresentation. ${error.message}`)
   }
-}
-
-function isEmbeddedDataIntegrityPresentation(
-  value: unknown
-): value is W3cV2DataIntegrityVerifiablePresentationOptions['securedPresentation'] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-
-  return 'proof' in value
 }
 
 const encodePresentation = (value: unknown) => {

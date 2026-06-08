@@ -20,6 +20,7 @@ import {
   type W3cV2EnvelopedVerifiableCredentialOptions,
 } from '../credential/W3cV2EnvelopedVerifiableCredential'
 import {
+  isEnvelopedVerifiablePresentationEntry,
   W3cV2EnvelopedVerifiablePresentation,
   type W3cV2EnvelopedVerifiablePresentationOptions,
 } from './W3cV2EnvelopedVerifiablePresentation'
@@ -68,7 +69,7 @@ export class W3cV2Presentation {
             return new W3cV2EnvelopedVerifiablePresentation(entry)
           }
 
-          if (isEmbeddedDataIntegrityPresentation(entry)) {
+          if (isEmbeddedDataIntegrityPresentationEntry(entry)) {
             return new W3cV2DataIntegrityVerifiablePresentation({
               securedPresentation: entry,
               resolvedPresentation: JsonTransformer.fromJSON(entry, W3cV2Presentation, { validate: false }),
@@ -139,7 +140,9 @@ export class W3cV2Presentation {
   }
 }
 
-function isEmbeddedDataIntegrityPresentation(value: unknown): value is W3cV2DataIntegritySecuredPresentation {
+export function isEmbeddedDataIntegrityPresentationEntry(
+  value: unknown
+): value is W3cV2DataIntegritySecuredPresentation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   if (!('proof' in value) || !('type' in value)) return false
 
@@ -157,15 +160,6 @@ function isEmbeddedDataIntegrityCredential(value: unknown): value is W3cV2DataIn
   return 'proof' in value
 }
 
-function isEnvelopedVerifiablePresentationEntry(value: unknown): value is W3cV2EnvelopedVerifiablePresentationOptions {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-
-  const type = (value as { type?: unknown }).type
-  const values = Array.isArray(type) ? type : [type]
-
-  return values.some((entry) => entry === 'EnvelopedVerifiablePresentation')
-}
-
 function jsonToCredentialEntry(value: unknown): W3cV2PresentationCredentialEntry {
   if (
     value instanceof W3cV2EnvelopedVerifiableCredential ||
@@ -180,7 +174,7 @@ function jsonToCredentialEntry(value: unknown): W3cV2PresentationCredentialEntry
     return new W3cV2EnvelopedVerifiablePresentation(value)
   }
 
-  if (isEmbeddedDataIntegrityPresentation(value)) {
+  if (isEmbeddedDataIntegrityPresentationEntry(value)) {
     return new W3cV2DataIntegrityVerifiablePresentation({
       securedPresentation: value,
       resolvedPresentation: JsonTransformer.fromJSON(value, W3cV2Presentation, { validate: false }),

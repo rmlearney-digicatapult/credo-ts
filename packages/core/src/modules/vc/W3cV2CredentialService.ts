@@ -21,8 +21,8 @@ import type {
 } from './models'
 import {
   ClaimFormat,
-  decodeW3cV2EnvelopedVerifiablePresentation,
   decodeW3cV2VerifiablePresentation,
+  presentationFromDataUri,
   W3cV2EnvelopedVerifiableCredential,
   W3cV2EnvelopedVerifiablePresentation,
 } from './models'
@@ -355,7 +355,7 @@ export class W3cV2CredentialService {
     }
 
     if (entry instanceof W3cV2EnvelopedVerifiablePresentation) {
-      const nestedPresentation = decodeW3cV2EnvelopedVerifiablePresentation(entry.id)
+      const nestedPresentation = presentationFromDataUri(entry.id)
 
       const nestedPresentationResult =
         nestedPresentation instanceof W3cV2JwtVerifiablePresentation
