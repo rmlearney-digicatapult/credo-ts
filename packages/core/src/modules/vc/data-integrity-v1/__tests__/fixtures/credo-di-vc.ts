@@ -1,19 +1,5 @@
 export const CredoDidKeyDiVc = {
   '@context': ['https://www.w3.org/ns/credentials/v2'],
-  type: ['VerifiableCredential'],
-  issuer: {
-    id: 'did:example:issuer-di',
-  },
-  credentialSubject: {
-    id: 'did:key:z6MkqgkLrRyLg6bqk27djwbbaQWgaSYgFVCKq9YKxZbNkpVv',
-  },
-  proof: {
-    type: 'DataIntegrityProof',
-  },
-} as const
-
-export const CredoDidKeyDiVcSigned = {
-  '@context': ['https://www.w3.org/ns/credentials/v2'],
   id: 'urn:uuid:ea52d95f-31a7-4c3b-a965-1f4f4f2b05f1',
   type: ['VerifiableCredential', 'ExampleCredential'],
   issuer: 'did:key:z6MkhaXgBZDvotDkL5257faWxcERCqyLmqwK8PrMUA34yPv1',
@@ -34,7 +20,7 @@ export const CredoDidKeyDiVcSigned = {
 } as const
 
 // Mirror compact JWT fixture style with a canonical encoded DI VC payload.
-export const CredoDidKeyDiVcEncoded = JSON.stringify(CredoDidKeyDiVcSigned)
+export const CredoDidKeyDiVcEncoded = JSON.stringify(CredoDidKeyDiVc)
 
 export const CredoDidKeyDiVp = {
   '@context': ['https://www.w3.org/ns/credentials/v2'],
