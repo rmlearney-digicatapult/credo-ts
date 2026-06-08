@@ -55,6 +55,24 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
       return W3cV2SdJwtVerifiablePresentation.fromCompact(trimmedValue)
     }
 
+    if (!Jwt.format.test(trimmedValue)) {
+      throw new CredoError("Unsupported presentation string encoding. Expected compact 'vp+jwt'.")
+    }
+
+    const typ = Jwt.fromSerializedJwt(trimmedValue).header.typ
+
+    if (typ === 'vc+jwt' || typ === 'dc+jwt') {
+      throw new CredoError('Value is a W3C VC JWT, but a W3C VP JWT was expected')
+    }
+
+    if (typ === 'vp+sd-jwt') {
+      throw new CredoError("Value has typ 'vp+sd-jwt' but is missing SD-JWT disclosures")
+    }
+
+    if (typ && typ !== 'vp+jwt') {
+      throw new CredoError(`Unsupported W3C VP JWT typ '${typ}'. Expected 'vp+jwt'.`)
+    }
+
     return W3cV2JwtVerifiablePresentation.fromCompact(trimmedValue)
   } catch (error) {
     if (error instanceof ValidationError || error instanceof ClassValidationError) {

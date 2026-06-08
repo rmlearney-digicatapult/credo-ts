@@ -56,6 +56,24 @@ describe('decodeW3cV2VerifiablePresentation', () => {
       "Expected compact 'vp+sd-jwt'"
     )
   })
+
+  test('rejects vc+jwt compact token in VP decode path', () => {
+    const compact = toCompactHeader({ alg: 'ES256', typ: 'vc+jwt' })
+
+    expect(() => decodeW3cV2VerifiablePresentation(compact)).toThrow(
+      'Value is a W3C VC JWT, but a W3C VP JWT was expected'
+    )
+  })
+
+  test('rejects vp+sd-jwt typ without sd-jwt disclosures', () => {
+    const compact = toCompactHeader({ alg: 'ES256', typ: 'vp+sd-jwt' })
+
+    expect(() => decodeW3cV2VerifiablePresentation(compact)).toThrow('missing SD-JWT disclosures')
+  })
+
+  test('rejects non-jwt compact input without sd-jwt separators', () => {
+    expect(() => decodeW3cV2VerifiablePresentation('not-a-jwt')).toThrow("Expected compact 'vp+jwt'")
+  })
 })
 
 function toCompactHeader(header: Record<string, unknown>) {
