@@ -143,7 +143,7 @@ function buildSignCredentialOptions(params: {
       issuer: issuerDidRef.did,
       validFrom: new Date().toISOString(),
       credentialSubject: {
-        id: holderDidRef.did,
+        id: credentialSubjectDid ?? holderDidRef.did,
         name: 'Jane Doe',
       },
     },
@@ -320,7 +320,7 @@ describe('W3C VC 2.0 format e2e matrix (transport-agnostic)', () => {
       expect(verifyPresentationResult.isValid).toBe(false)
     })
 
-    test('negative: presentation must authenticate credentialSubject', async () => {
+    test('negative: VP signer must match VC credentialSubject.id', async () => {
       const signCredentialOptions = buildSignCredentialOptions({
         credentialFormat,
         issuerDidRef,
@@ -448,7 +448,7 @@ describe('W3C VC 2.0 format e2e matrix (transport-agnostic)', () => {
       expect(verifyPresentationResult.isValid).toBe(false)
     })
 
-    test('negative: presentation must authenticate credentialSubject', async () => {
+    test('negative: VP signer must match VC credentialSubject.id', async () => {
       const signCredentialOptions = buildSignCredentialOptions({
         credentialFormat,
         issuerDidRef,
@@ -574,6 +574,42 @@ describe('W3C VC 2.0 format e2e matrix (transport-agnostic)', () => {
 
       expect(verifyPresentationResult.presentation.isValid).toBe(false)
       expect(verifyPresentationResult.isValid).toBe(false)
+    })
+
+    test('negative: VP signer must match VC credentialSubject.id', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+        credentialSubjectDid: issuerDidRef.did,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge,
+        domain,
+      } as never)
+
+      expect(verifyPresentationResult.isValid).toBe(false)
+      expect(
+        verifyPresentationResult.credentialEntries.some(
+          (entry) =>
+            (entry as { validations?: { credentialSubjectAuthentication?: { isValid?: boolean } } }).validations
+              ?.credentialSubjectAuthentication?.isValid === false
+        )
+      ).toBe(true)
     })
   })
 })
