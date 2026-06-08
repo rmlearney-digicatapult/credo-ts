@@ -2,17 +2,22 @@ import { CredoError } from '../../../error'
 import type { JsonObject, SingleOrArray } from '../../../types'
 import { MessageValidator } from '../../../utils'
 import { ClaimFormat } from '../models/ClaimFormat'
-import { W3cV2EnvelopedVerifiableCredential } from '../models/credential/W3cV2EnvelopedVerifiableCredential'
-import { W3cV2EnvelopedVerifiablePresentation } from '../models/presentation/W3cV2EnvelopedVerifiablePresentation'
 import { W3cV2DataIntegrityVerifiableCredential } from './W3cV2DataIntegrityVerifiableCredential'
 
 export type W3cV2DataIntegritySecuredPresentation = Record<string, unknown> & { proof: unknown }
 
+type W3cV2DataIntegrityPresentationCredentialObjectEntry = {
+  id?: string
+  type?: SingleOrArray<string>
+  proof?: unknown
+  verifiableCredential?: SingleOrArray<W3cV2DataIntegrityPresentationCredentialEntry>
+}
+
 export type W3cV2DataIntegrityPresentationCredentialEntry =
-  | W3cV2EnvelopedVerifiableCredential
-  | W3cV2EnvelopedVerifiablePresentation
   | W3cV2DataIntegrityVerifiableCredential
   | W3cV2DataIntegrityVerifiablePresentation
+  | W3cV2DataIntegrityPresentationCredentialObjectEntry
+  | string
 
 export type W3cV2DataIntegrityResolvedPresentation = {
   context?: Array<string | JsonObject>

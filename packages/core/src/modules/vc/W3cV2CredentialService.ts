@@ -474,7 +474,7 @@ export class W3cV2CredentialService {
   private extractCredentialEntriesFromResolvedPresentation(
     resolvedPresentation: Pick<W3cV2Presentation, 'verifiableCredential'> | W3cV2DataIntegrityResolvedPresentation
   ): W3cV2PresentationCredentialEntry[] {
-    return asArray(resolvedPresentation.verifiableCredential)
+    return asArray(resolvedPresentation.verifiableCredential) as W3cV2PresentationCredentialEntry[]
   }
 
   private createInvalidCredentialEntryResult(error: Error): W3cV2PresentationCredentialEntryResult {

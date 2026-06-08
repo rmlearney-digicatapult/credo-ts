@@ -8,10 +8,16 @@ import {
   W3cV2DataIntegrityVerifiablePresentation,
   type W3cV2DataIntegrityVerifiablePresentationOptions,
 } from '../../data-integrity-v1'
-import { W3cV2JwtVerifiablePresentation, type W3cV2JwtVerifiablePresentationOptions } from '../../jwt-vc'
-import { W3cV2SdJwtVerifiablePresentation, type W3cV2SdJwtVerifiablePresentationOptions } from '../../sd-jwt-vc'
+import {
+  W3cV2JwtVerifiablePresentation,
+  type W3cV2JwtVerifiablePresentationOptions,
+} from '../../jwt-vc/W3cV2JwtVerifiablePresentation'
+import {
+  W3cV2SdJwtVerifiablePresentation,
+  type W3cV2SdJwtVerifiablePresentationOptions,
+} from '../../sd-jwt-vc/W3cV2SdJwtVerifiablePresentation'
 import { ClaimFormat } from '../ClaimFormat'
-import { presentationFromDataUri } from './W3cV2EnvelopedVerifiablePresentation'
+import { presentationFromDataUri } from './W3cV2EnvelopedVerifiablePresentationCodec'
 import { isEmbeddedDataIntegrityPresentationEntry, W3cV2Presentation } from './W3cV2Presentation'
 
 export const decodeW3cV2VerifiablePresentation = (value: unknown) => {

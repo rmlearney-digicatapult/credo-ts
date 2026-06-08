@@ -52,9 +52,7 @@ describe('decodeW3cV2VerifiablePresentation', () => {
   })
 
   test('does not fall back from malformed sd-jwt shape to jwt parsing', () => {
-    expect(() => decodeW3cV2VerifiablePresentation('not-a-jwt~still-not-a-jwt')).toThrow(
-      "Expected compact 'vp+sd-jwt'"
-    )
+    expect(() => decodeW3cV2VerifiablePresentation('not-a-jwt~still-not-a-jwt')).toThrow("Expected compact 'vp+sd-jwt'")
   })
 
   test('rejects vc+jwt compact token in VP decode path', () => {
