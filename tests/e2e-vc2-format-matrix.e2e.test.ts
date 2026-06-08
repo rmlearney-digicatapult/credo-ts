@@ -106,7 +106,6 @@ function buildSignCredentialOptions(params: {
   const { credentialFormat, issuerDidRef, holderDidRef, credentialSubjectDid } = params
   const credential = buildCredentialToSign(issuerDidRef.did, credentialSubjectDid ?? holderDidRef.did)
 
-  // Intentionally untyped skeleton: this file is a template for true format e2e tests.
   if (credentialFormat === ClaimFormat.JwtW3cVc) {
     return {
       format: ClaimFormat.JwtW3cVc,
@@ -138,7 +137,6 @@ function buildSignCredentialOptions(params: {
     format: ClaimFormat.DiVc,
     credential: {
       '@context': ['https://www.w3.org/ns/credentials/v2'],
-      id: `urn:vc2:e2e:di:${Date.now()}`,
       type: ['VerifiableCredential', 'ExampleCredential'],
       issuer: issuerDidRef.did,
       validFrom: new Date().toISOString(),
@@ -161,10 +159,9 @@ function buildSignPresentationOptions(params: {
 }) {
   const { presentationFormat, holderDidRef, signedCredential, challenge, domain } = params
 
-  // TODO: replace this payload with exact API-native W3C V2 presentation objects for each format.
-  // The structure below is a practical starting scaffold for wiring the matrix.
   if (presentationFormat === ClaimFormat.JwtW3cVp) {
     const jwtCredential = signedCredential as W3cV2JwtVerifiableCredential
+
     return {
       format: ClaimFormat.JwtW3cVp,
       challenge,
@@ -180,6 +177,7 @@ function buildSignPresentationOptions(params: {
 
   if (presentationFormat === ClaimFormat.SdJwtW3cVp) {
     const sdJwtCredential = signedCredential as W3cV2SdJwtVerifiableCredential
+
     return {
       format: ClaimFormat.SdJwtW3cVp,
       challenge,
@@ -193,6 +191,8 @@ function buildSignPresentationOptions(params: {
     }
   }
 
+  const diCredential = signedCredential as W3cV2DataIntegrityVerifiableCredential
+
   return {
     format: ClaimFormat.DiVp,
     challenge,
@@ -200,9 +200,8 @@ function buildSignPresentationOptions(params: {
     verificationMethod: holderDidRef.kid,
     cryptosuite: 'eddsa-jcs-2022',
     presentation: new W3cV2Presentation({
-      id: `urn:vp2:e2e:di:${Date.now()}`,
       holder: holderDidRef.did,
-      verifiableCredential: [signedCredential as W3cV2DataIntegrityVerifiableCredential],
+      verifiableCredential: [diCredential],
     }),
   }
 }
