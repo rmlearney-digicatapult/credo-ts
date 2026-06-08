@@ -23,7 +23,7 @@ type IssuanceCase = {
 
 type DidRef = Awaited<ReturnType<typeof createDidKidVerificationMethod>>
 
-const issuanceCases: IssuanceCase[] = [
+const _issuanceCases: IssuanceCase[] = [
   {
     name: 'jwt-vc / jwt-vp',
     credentialFormat: ClaimFormat.JwtW3cVc,
@@ -54,13 +54,57 @@ function buildCredentialToSign(issuerDid: string, holderDid: string) {
   })
 }
 
+function tamperCompactJwtSignature(compact: string) {
+  const parts = compact.split('.')
+  if (parts.length !== 3 || parts[2].length === 0) {
+    throw new Error('Expected compact JWT with 3 segments')
+  }
+
+  const signature = parts[2]
+  const tamperIndex = Math.floor(signature.length / 2)
+  const replacement = signature[tamperIndex] === 'A' ? 'B' : 'A'
+  parts[2] = `${signature.slice(0, tamperIndex)}${replacement}${signature.slice(tamperIndex + 1)}`
+
+  return parts.join('.')
+}
+
+function tamperSignedCredential(
+  credentialFormat: IssuanceCase['credentialFormat'],
+  signedCredential: unknown
+): W3cV2JwtVerifiableCredential | W3cV2SdJwtVerifiableCredential | W3cV2DataIntegrityVerifiableCredential {
+  if (credentialFormat === ClaimFormat.JwtW3cVc) {
+    const jwtCredential = signedCredential as W3cV2JwtVerifiableCredential
+    return W3cV2JwtVerifiableCredential.fromCompact(tamperCompactJwtSignature(jwtCredential.encoded))
+  }
+
+  if (credentialFormat === ClaimFormat.SdJwtW3cVc) {
+    const sdJwtCredential = signedCredential as W3cV2SdJwtVerifiableCredential
+    const sdJwtParts = sdJwtCredential.encoded.split('~')
+    sdJwtParts[0] = tamperCompactJwtSignature(sdJwtParts[0])
+    return W3cV2SdJwtVerifiableCredential.fromCompact(sdJwtParts.join('~'))
+  }
+
+  const diCredential = signedCredential as W3cV2DataIntegrityVerifiableCredential
+  const credentialObject = structuredClone(diCredential.securedCredential) as Record<string, unknown>
+  const credentialSubject = credentialObject.credentialSubject as Record<string, unknown>
+  credentialObject.credentialSubject = {
+    ...credentialSubject,
+    name: 'Mallory',
+  }
+
+  return W3cV2DataIntegrityVerifiableCredential.fromObject(
+    credentialObject as W3cV2DataIntegrityVerifiableCredential['securedCredential']
+  )
+}
+
 function buildSignCredentialOptions(params: {
   credentialFormat: IssuanceCase['credentialFormat']
   issuerDidRef: DidRef
   holderDidRef: DidRef
+  credentialSubjectDid?: string
 }) {
-  const { credentialFormat, issuerDidRef, holderDidRef } = params
-  const credential = buildCredentialToSign(issuerDidRef.did, holderDidRef.did)
+  const { credentialFormat, issuerDidRef, holderDidRef, credentialSubjectDid } = params
+  const credential = buildCredentialToSign(issuerDidRef.did, credentialSubjectDid ?? holderDidRef.did)
 
   // Intentionally untyped skeleton: this file is a template for true format e2e tests.
   if (credentialFormat === ClaimFormat.JwtW3cVc) {
@@ -185,53 +229,351 @@ describe('W3C VC 2.0 format e2e matrix (transport-agnostic)', () => {
     await holderAgent.shutdown()
   })
 
-  test.each(issuanceCases)('issues, stores, presents, and verifies %s', async ({
-    name,
-    credentialFormat,
-    presentationFormat,
-  }) => {
-    const challenge = `challenge-${name.replace(/\s+/g, '-')}`
+  describe('jwt-vc / jwt-vp', () => {
+    const credentialFormat = ClaimFormat.JwtW3cVc
+    const presentationFormat = ClaimFormat.JwtW3cVp
+    const challenge = 'challenge-jwt-vc-jwt-vp'
     const domain = 'example.org'
 
-    const signCredentialOptions = buildSignCredentialOptions({
-      credentialFormat,
-      issuerDidRef,
-      holderDidRef,
+    test('issues, stores, presents, and verifies', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
+        credential: signedCredential,
+      } as never)
+
+      expect(verifyCredentialResult.isValid).toBe(true)
+
+      await holderAgent.w3cV2Credentials.store({
+        record: W3cV2CredentialRecord.fromCredential(signedCredential as never),
+      })
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge,
+        domain,
+      } as never)
+
+      expect(verifyPresentationResult.presentation.isValid).toBe(true)
+      expect(verifyPresentationResult.isValid).toBe(true)
     })
 
-    const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+    test('negative: tampered credential fails verification', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
 
-    const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
-      credential: signedCredential,
-    } as never)
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+      const tamperedCredential = tamperSignedCredential(credentialFormat, signedCredential)
 
-    expect(verifyCredentialResult.isValid).toBe(true)
+      const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
+        credential: tamperedCredential,
+      } as never)
 
-    await holderAgent.w3cV2Credentials.store({
-      record: W3cV2CredentialRecord.fromCredential(signedCredential as never),
+      expect(verifyCredentialResult.isValid).toBe(false)
     })
 
-    const signPresentationOptions = buildSignPresentationOptions({
-      presentationFormat,
-      holderDidRef,
-      signedCredential,
-      challenge,
-      domain,
+    test('negative: wrong challenge/domain fails VP verification', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge: `${challenge}-wrong`,
+        domain: `${domain}-wrong`,
+      } as never)
+
+      expect(verifyPresentationResult.presentation.isValid).toBe(false)
+      expect(verifyPresentationResult.isValid).toBe(false)
     })
 
-    const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+    test('negative: presentation must authenticate credentialSubject', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+        credentialSubjectDid: issuerDidRef.did,
+      })
 
-    const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
-      presentation: signedPresentation,
-      challenge,
-      domain,
-    } as never)
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
 
-    expect(verifyPresentationResult.presentation.isValid).toBe(true)
-    expect(verifyPresentationResult.isValid).toBe(true)
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge,
+        domain,
+      } as never)
+
+      expect(verifyPresentationResult.isValid).toBe(false)
+      expect(
+        verifyPresentationResult.credentialEntries.some(
+          (entry) =>
+            (entry as { validations?: { credentialSubjectAuthentication?: { isValid?: boolean } } }).validations
+              ?.credentialSubjectAuthentication?.isValid === false
+        )
+      ).toBe(true)
+    })
   })
 
-  test.todo('negative: tampered credential should fail verification for each format')
-  test.todo('negative: wrong challenge/domain should fail VP verification for each format')
-  test.todo('negative: presenter must authenticate credentialSubject where applicable')
+  describe('sd-jwt-vc / sd-jwt-vp', () => {
+    const credentialFormat = ClaimFormat.SdJwtW3cVc
+    const presentationFormat = ClaimFormat.SdJwtW3cVp
+    const challenge = 'challenge-sd-jwt-vc-sd-jwt-vp'
+    const domain = 'example.org'
+
+    test('issues, stores, presents, and verifies', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
+        credential: signedCredential,
+      } as never)
+
+      expect(verifyCredentialResult.isValid).toBe(true)
+
+      await holderAgent.w3cV2Credentials.store({
+        record: W3cV2CredentialRecord.fromCredential(signedCredential as never),
+      })
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge,
+        domain,
+      } as never)
+
+      expect(verifyPresentationResult.presentation.isValid).toBe(true)
+      expect(verifyPresentationResult.isValid).toBe(true)
+    })
+
+    test('negative: tampered credential fails verification', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+      const tamperedCredential = tamperSignedCredential(credentialFormat, signedCredential)
+
+      const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
+        credential: tamperedCredential,
+      } as never)
+
+      expect(verifyCredentialResult.isValid).toBe(false)
+    })
+
+    test('negative: wrong challenge/domain fails VP verification', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge: `${challenge}-wrong`,
+        domain: `${domain}-wrong`,
+      } as never)
+
+      expect(verifyPresentationResult.presentation.isValid).toBe(false)
+      expect(verifyPresentationResult.isValid).toBe(false)
+    })
+
+    test('negative: presentation must authenticate credentialSubject', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+        credentialSubjectDid: issuerDidRef.did,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge,
+        domain,
+      } as never)
+
+      expect(verifyPresentationResult.isValid).toBe(false)
+      expect(
+        verifyPresentationResult.credentialEntries.some(
+          (entry) =>
+            (entry as { validations?: { credentialSubjectAuthentication?: { isValid?: boolean } } }).validations
+              ?.credentialSubjectAuthentication?.isValid === false
+        )
+      ).toBe(true)
+    })
+  })
+
+  describe('di-vc / di-vp', () => {
+    const credentialFormat = ClaimFormat.DiVc
+    const presentationFormat = ClaimFormat.DiVp
+    const challenge = 'challenge-di-vc-di-vp'
+    const domain = 'example.org'
+
+    test('issues, stores, presents, and verifies', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
+        credential: signedCredential,
+      } as never)
+
+      expect(verifyCredentialResult.isValid).toBe(true)
+
+      await holderAgent.w3cV2Credentials.store({
+        record: W3cV2CredentialRecord.fromCredential(signedCredential as never),
+      })
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge,
+        domain,
+      } as never)
+
+      expect(verifyPresentationResult.presentation.isValid).toBe(true)
+      expect(verifyPresentationResult.isValid).toBe(true)
+    })
+
+    test('negative: tampered credential fails verification', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+      const tamperedCredential = tamperSignedCredential(credentialFormat, signedCredential)
+
+      const verifyCredentialResult = await holderAgent.w3cV2Credentials.verifyCredential({
+        credential: tamperedCredential,
+      } as never)
+
+      expect(verifyCredentialResult.isValid).toBe(false)
+    })
+
+    test('negative: wrong challenge/domain fails VP verification', async () => {
+      const signCredentialOptions = buildSignCredentialOptions({
+        credentialFormat,
+        issuerDidRef,
+        holderDidRef,
+      })
+
+      const signedCredential = await issuerAgent.w3cV2Credentials.signCredential(signCredentialOptions as never)
+
+      const signPresentationOptions = buildSignPresentationOptions({
+        presentationFormat,
+        holderDidRef,
+        signedCredential,
+        challenge,
+        domain,
+      })
+
+      const signedPresentation = await holderAgent.w3cV2Credentials.signPresentation(signPresentationOptions as never)
+
+      const verifyPresentationResult = await issuerAgent.w3cV2Credentials.verifyPresentation({
+        presentation: signedPresentation,
+        challenge: `${challenge}-wrong`,
+        domain: `${domain}-wrong`,
+      } as never)
+
+      expect(verifyPresentationResult.presentation.isValid).toBe(false)
+      expect(verifyPresentationResult.isValid).toBe(false)
+    })
+  })
 })
