@@ -238,7 +238,7 @@ export class W3cV2CredentialService {
           return validationResults
         }
       }
-      entries = asArray(presentation.resolvedPresentation.verifiableCredential)
+      entries = this.extractCredentialEntriesFromPresentation(presentation)
     } else if (presentation instanceof W3cV2SdJwtVerifiablePresentation) {
       const presentationResult = await this.w3cV2SdJwtCredentialService.verifyPresentation(agentContext, {
         ...options,
@@ -263,7 +263,7 @@ export class W3cV2CredentialService {
           return validationResults
         }
       }
-      entries = asArray(presentation.resolvedPresentation.verifiableCredential)
+      entries = this.extractCredentialEntriesFromPresentation(presentation)
     } else if (presentation instanceof W3cV2DataIntegrityVerifiablePresentation) {
       const presentationResult = await this.w3cV2DataIntegrityCredentialService.verifyPresentation(agentContext, {
         ...options,
@@ -282,7 +282,7 @@ export class W3cV2CredentialService {
         return validationResults
       }
 
-      entries = asArray(presentation.resolvedPresentation.verifiableCredential)
+      entries = this.extractCredentialEntriesFromPresentation(presentation)
     } else {
       throw new CredoError(
         'Unsupported credential type in options. Presentation must be either a W3cV2JwtVerifiablePresentation, a W3cV2SdJwtVerifiablePresentation, or a W3cV2DataIntegrityVerifiablePresentation'
@@ -344,7 +344,7 @@ export class W3cV2CredentialService {
 
       return (
         await Promise.all(
-          asArray(entry.resolvedPresentation.verifiableCredential).map((nestedEntry) =>
+          this.extractCredentialEntriesFromResolvedPresentation(entry.resolvedPresentation).map((nestedEntry) =>
             this.verifyPresentationEntry(agentContext, nestedEntry, nestedSignerId, presentationContext)
           )
         )
@@ -381,13 +381,6 @@ export class W3cV2CredentialService {
                 domain: presentationContext.domain,
                 presentation: nestedPresentation,
               } as W3cV2SdJwtVerifyPresentationOptions)
-            : nestedPresentation instanceof W3cV2DataIntegrityVerifiablePresentation &&
-                presentationContext.allowNestedDiPresentation
-              ? await this.w3cV2DataIntegrityCredentialService.verifyPresentation(agentContext, {
-                  challenge: presentationContext.challenge,
-                  domain: presentationContext.domain,
-                  presentation: nestedPresentation,
-                } as W3cV2DiVerifyPresentationOptions)
             : undefined
 
       if (!nestedPresentationResult) {
@@ -478,6 +471,23 @@ export class W3cV2CredentialService {
     } catch {
       return undefined
     }
+  }
+
+  private extractCredentialEntriesFromPresentation(
+    presentation:
+      | W3cV2JwtVerifiablePresentation
+      | W3cV2SdJwtVerifiablePresentation
+      | W3cV2DataIntegrityVerifiablePresentation
+  ): W3cV2PresentationCredentialEntry[] {
+    return this.extractCredentialEntriesFromResolvedPresentation(presentation.resolvedPresentation)
+  }
+
+  private extractCredentialEntriesFromResolvedPresentation(resolvedPresentation: {
+    verifiableCredential?: unknown
+  }): W3cV2PresentationCredentialEntry[] {
+    return asArray(
+      resolvedPresentation.verifiableCredential as W3cV2PresentationCredentialEntry | W3cV2PresentationCredentialEntry[]
+    )
   }
 
   private createInvalidCredentialEntryResult(error: Error): W3cV2PresentationCredentialEntryResult {

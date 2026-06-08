@@ -1,12 +1,19 @@
 import { CredoError } from '../../../error'
-import { JsonTransformer, MessageValidator } from '../../../utils'
+import { MessageValidator } from '../../../utils'
 import { ClaimFormat } from '../models/ClaimFormat'
-import { W3cV2Presentation } from '../models/presentation/W3cV2Presentation'
 
 export type W3cV2DataIntegritySecuredPresentation = Record<string, unknown> & { proof: unknown }
 
+export type W3cV2DataIntegrityResolvedPresentation = {
+  context?: Array<string | Record<string, unknown>>
+  type?: string | Array<string>
+  holderId?: string
+  verifiableCredential?: unknown | ReadonlyArray<unknown>
+}
+
 export interface W3cV2DataIntegrityVerifiablePresentationOptions {
   securedPresentation: W3cV2DataIntegritySecuredPresentation
+  resolvedPresentation: W3cV2DataIntegrityResolvedPresentation
 }
 
 /**
@@ -17,17 +24,19 @@ export interface W3cV2DataIntegrityVerifiablePresentationOptions {
 export class W3cV2DataIntegrityVerifiablePresentation {
   public constructor(options: W3cV2DataIntegrityVerifiablePresentationOptions) {
     this.securedPresentation = options.securedPresentation
-    this.resolvedPresentation = JsonTransformer.fromJSON(options.securedPresentation, W3cV2Presentation, {
-      validate: false,
-    })
+    this.resolvedPresentation = options.resolvedPresentation
 
     // Validates the presentation structure and proof presence
     this.validate()
   }
 
-  public static fromObject(presentation: W3cV2DataIntegritySecuredPresentation) {
+  public static fromObject(
+    presentation: W3cV2DataIntegritySecuredPresentation,
+    resolvedPresentation: W3cV2DataIntegrityResolvedPresentation
+  ) {
     return new W3cV2DataIntegrityVerifiablePresentation({
       securedPresentation: presentation,
+      resolvedPresentation,
     })
   }
 
@@ -37,9 +46,9 @@ export class W3cV2DataIntegrityVerifiablePresentation {
   public readonly securedPresentation: W3cV2DataIntegritySecuredPresentation
 
   /**
-   * Resolved presentation is the fully resolved {@link W3cV2Presentation} instance.
+   * Resolved presentation is the parsed VP object used for traversal and validation.
    */
-  public readonly resolvedPresentation: W3cV2Presentation
+  public readonly resolvedPresentation: W3cV2DataIntegrityResolvedPresentation
 
   /**
    * The JSON representation of this presentation.
@@ -91,10 +100,4 @@ export class W3cV2DataIntegrityVerifiablePresentation {
       }
     }
   }
-}
-
-function isEmbeddedDataIntegrityPresentation(value: unknown): value is W3cV2DataIntegritySecuredPresentation {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-
-  return 'proof' in value
 }

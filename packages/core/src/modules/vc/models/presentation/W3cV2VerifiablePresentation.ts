@@ -2,6 +2,7 @@ import { Transform, TransformationType } from 'class-transformer'
 import { ValidationError } from 'class-validator'
 import { ClassValidationError, CredoError } from '../../../../error'
 import type { SingleOrArray } from '../../../../types'
+import { JsonTransformer } from '../../../../utils'
 import {
   W3cV2DataIntegrityVerifiablePresentation,
   type W3cV2DataIntegrityVerifiablePresentationOptions,
@@ -9,6 +10,7 @@ import {
 import { W3cV2JwtVerifiablePresentation, type W3cV2JwtVerifiablePresentationOptions } from '../../jwt-vc'
 import { W3cV2SdJwtVerifiablePresentation, type W3cV2SdJwtVerifiablePresentationOptions } from '../../sd-jwt-vc'
 import { ClaimFormat } from '../ClaimFormat'
+import { W3cV2Presentation } from './W3cV2Presentation'
 
 export const decodeW3cV2EnvelopedVerifiablePresentation = (value: string) => {
   if (!value.startsWith('data:')) {
@@ -47,7 +49,10 @@ export const decodeW3cV2VerifiablePresentation = (value: unknown) => {
     try {
       const parsedJson = JSON.parse(trimmedValue)
       if (isEmbeddedDataIntegrityPresentation(parsedJson)) {
-        return W3cV2DataIntegrityVerifiablePresentation.fromObject(parsedJson)
+        return new W3cV2DataIntegrityVerifiablePresentation({
+          securedPresentation: parsedJson,
+          resolvedPresentation: JsonTransformer.fromJSON(parsedJson, W3cV2Presentation, { validate: false }),
+        })
       }
     } catch {
       // Not JSON; continue with envelope/compact encodings.

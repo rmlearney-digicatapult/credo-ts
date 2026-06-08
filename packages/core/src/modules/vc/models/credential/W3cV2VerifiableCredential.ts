@@ -22,11 +22,11 @@ export const decodeW3cV2VerifiableCredential = (v: unknown) => {
     try {
       const parsedJson = JSON.parse(trimmedValue)
       if (parsedJson && typeof parsedJson === 'object' && !Array.isArray(parsedJson)) {
-        return W3cV2DataIntegrityVerifiableCredential.fromObject(
-          parsedJson as Record<string, unknown> & {
+        return new W3cV2DataIntegrityVerifiableCredential({
+          securedCredential: parsedJson as Record<string, unknown> & {
             proof: unknown
-          }
-        )
+          },
+        })
       }
     } catch {
       // Not JSON; continue with compact encodings.

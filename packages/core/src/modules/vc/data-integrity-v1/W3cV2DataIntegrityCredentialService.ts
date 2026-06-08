@@ -68,9 +68,11 @@ export class W3cV2DataIntegrityCredentialService {
       throw createDataIntegrityCredoError(proofResult.errors)
     }
 
-    return W3cV2DataIntegrityVerifiableCredential.fromObject({
-      ...unsecuredCredential,
-      proof: proofResult.proof,
+    return new W3cV2DataIntegrityVerifiableCredential({
+      securedCredential: {
+        ...unsecuredCredential,
+        proof: proofResult.proof,
+      },
     })
   }
 
@@ -147,9 +149,14 @@ export class W3cV2DataIntegrityCredentialService {
       throw createDataIntegrityCredoError(proofResult.errors)
     }
 
-    return W3cV2DataIntegrityVerifiablePresentation.fromObject({
+    const securedPresentation = {
       ...unsecuredPresentation,
       proof: proofResult.proof,
+    }
+
+    return new W3cV2DataIntegrityVerifiablePresentation({
+      securedPresentation,
+      resolvedPresentation: JsonTransformer.fromJSON(securedPresentation, W3cV2Presentation, { validate: false }),
     })
   }
 
@@ -269,7 +276,10 @@ export class W3cV2DataIntegrityCredentialService {
       const claimFormat =
         credential instanceof W3cV2EnvelopedVerifiableCredential
           ? credential.claimFormat
-          : 'claimFormat' in credential && typeof credential.claimFormat === 'string'
+          : typeof credential === 'object' &&
+              credential !== null &&
+              'claimFormat' in credential &&
+              typeof credential.claimFormat === 'string'
             ? credential.claimFormat
             : 'unknown'
 
