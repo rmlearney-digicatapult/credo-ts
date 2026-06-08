@@ -10,8 +10,10 @@ import { W3cV2CredentialService } from './W3cV2CredentialService'
 import { W3cV2CredentialsApi } from './W3cV2CredentialsApi'
 
 export interface W3cV2CredentialsModuleConfigOptions {
-  knownContexts?: unknown[]
-  recompactInvalidContexts?: boolean
+  dataIntegrity?: {
+    knownContexts?: unknown[]
+    recompactInvalidContexts?: boolean
+  }
 }
 
 /**
@@ -34,8 +36,8 @@ export class W3cV2CredentialsModule implements Module {
     dependencyManager.registerInstance(
       W3cV2DataIntegrityContextValidator,
       new W3cV2DataIntegrityContextValidator().configure({
-        knownContext: this.options.knownContexts ?? [CREDENTIALS_CONTEXT_V2_URL],
-        recompactInvalidContexts: this.options.recompactInvalidContexts ?? true,
+        knownContext: this.options.dataIntegrity?.knownContexts ?? [CREDENTIALS_CONTEXT_V2_URL],
+        recompactInvalidContexts: this.options.dataIntegrity?.recompactInvalidContexts ?? true,
       })
     )
     // VC services
