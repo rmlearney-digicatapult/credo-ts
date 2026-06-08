@@ -6,6 +6,7 @@ import { credentialMultiInstanceStateEnum } from '../w3c-credential-record/postg
 export const w3cV2CredentialClaimFormat = pgEnum('W3cV2ClaimFormat', [
   'vc+sd-jwt' satisfies `${ClaimFormat.SdJwtW3cVc}`,
   'vc+jwt' satisfies `${ClaimFormat.JwtW3cVc}`,
+  'di_vc' satisfies `${ClaimFormat.DiVc}`,
 ])
 
 export const w3cV2Credential = pgTable(
