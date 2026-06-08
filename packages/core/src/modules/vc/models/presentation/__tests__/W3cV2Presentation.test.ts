@@ -132,7 +132,7 @@ describe('W3cV2Presentation', () => {
 
     expect(() =>
       JsonTransformer.fromJSON({ ...validPresentation, verifiableCredential: [{ random: 'prop' }] }, W3cV2Presentation)
-    ).toThrow(/W3cV2EnvelopedVerifiableCredential: Failed to validate class/)
+    ).toThrow(/Unsupported verifiableCredential entry shape in W3cV2Presentation./)
   })
 
   test('accepts an embedded DI credential entry', () => {

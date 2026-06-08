@@ -4,20 +4,17 @@ import { W3cV2JwtVerifiablePresentation } from '../../../jwt-vc'
 import { CredoEs256DidKeyJwtVp } from '../../../jwt-vc/__tests__/fixtures/credo-jwt-vc-v2'
 import { W3cV2SdJwtVerifiablePresentation } from '../../../sd-jwt-vc'
 import { CredoEs256DidKeyJwtVp as CredoEs256DidKeySdJwtVp } from '../../../sd-jwt-vc/__tests__/fixtures/credo-sd-jwt-vc'
+import { ClaimFormat } from '../../ClaimFormat'
 import { decodeW3cV2VerifiablePresentation } from '../W3cV2VerifiablePresentation'
 
 describe('decodeW3cV2VerifiablePresentation', () => {
   test('routes JSON object payload to DI presentation decoder', () => {
-    const diSpy = vi
-      .spyOn(W3cV2DataIntegrityVerifiablePresentation, 'fromObject')
-      .mockReturnValue({ claimFormat: 'di_vp' } as never)
+    const result = decodeW3cV2VerifiablePresentation(
+      '  {"@context":["https://www.w3.org/ns/credentials/v2","https://w3id.org/security/data-integrity/v2"],"type":["VerifiablePresentation"],"holder":"did:key:z6Mkholder","proof":{"type":"DataIntegrityProof"}}'
+    )
 
-    const result = decodeW3cV2VerifiablePresentation('  {"proof":{"type":"DataIntegrityProof"}}')
-
-    expect(diSpy).toHaveBeenCalledTimes(1)
-    expect(result).toEqual({ claimFormat: 'di_vp' })
-
-    diSpy.mockRestore()
+    expect(result).toBeInstanceOf(W3cV2DataIntegrityVerifiablePresentation)
+    expect(result.claimFormat).toBe(ClaimFormat.DiVp)
   })
 
   test('accepts envelope-first vp+jwt data URI encoding', () => {

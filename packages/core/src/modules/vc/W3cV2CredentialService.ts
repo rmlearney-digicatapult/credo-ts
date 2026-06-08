@@ -5,6 +5,7 @@ import type { Query, QueryOptions } from '../../storage/StorageService'
 import { asArray } from '../../utils/array'
 import {
   W3cV2DataIntegrityCredentialService,
+  type W3cV2DataIntegrityResolvedPresentation,
   W3cV2DataIntegrityVerifiableCredential,
   W3cV2DataIntegrityVerifiablePresentation,
 } from './data-integrity-v1'
@@ -26,6 +27,7 @@ import {
   W3cV2EnvelopedVerifiablePresentation,
 } from './models'
 import { decodeW3cV2VerifiableCredential } from './models/credential/W3cV2VerifiableCredential'
+import type { W3cV2Presentation } from './models/presentation/W3cV2Presentation'
 import { W3cV2CredentialRecord, W3cV2CredentialRepository } from './repository'
 import {
   W3cV2SdJwtCredentialService,
@@ -482,12 +484,10 @@ export class W3cV2CredentialService {
     return this.extractCredentialEntriesFromResolvedPresentation(presentation.resolvedPresentation)
   }
 
-  private extractCredentialEntriesFromResolvedPresentation(resolvedPresentation: {
-    verifiableCredential?: unknown
-  }): W3cV2PresentationCredentialEntry[] {
-    return asArray(
-      resolvedPresentation.verifiableCredential as W3cV2PresentationCredentialEntry | W3cV2PresentationCredentialEntry[]
-    )
+  private extractCredentialEntriesFromResolvedPresentation(
+    resolvedPresentation: Pick<W3cV2Presentation, 'verifiableCredential'> | W3cV2DataIntegrityResolvedPresentation
+  ): W3cV2PresentationCredentialEntry[] {
+    return asArray(resolvedPresentation.verifiableCredential)
   }
 
   private createInvalidCredentialEntryResult(error: Error): W3cV2PresentationCredentialEntryResult {

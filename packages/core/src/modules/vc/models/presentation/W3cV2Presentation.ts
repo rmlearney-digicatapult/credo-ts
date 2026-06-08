@@ -1,5 +1,6 @@
 import { Expose, instanceToPlain, Transform, TransformationType } from 'class-transformer'
 import { IsOptional, ValidateNested } from 'class-validator'
+import { CredoError } from '../../../../error'
 import type { JsonObject, SingleOrArray } from '../../../../types'
 import { JsonTransformer, mapSingleOrArray } from '../../../../utils'
 import { IsInstanceOrArrayOfInstances, IsNever, IsUri } from '../../../../utils/validators'
@@ -14,6 +15,7 @@ import {
 } from '../../data-integrity-v1/W3cV2DataIntegrityVerifiablePresentation'
 import { IsCredentialJsonLdContext, IsVerifiablePresentationType } from '../../validators'
 import {
+  isEnvelopedVerifiableCredentialEntry,
   W3cV2EnvelopedVerifiableCredential,
   type W3cV2EnvelopedVerifiableCredentialOptions,
 } from '../credential/W3cV2EnvelopedVerifiableCredential'
@@ -77,7 +79,11 @@ export class W3cV2Presentation {
             return new W3cV2DataIntegrityVerifiableCredential({ securedCredential: entry })
           }
 
-          return new W3cV2EnvelopedVerifiableCredential(entry as W3cV2EnvelopedVerifiableCredentialOptions)
+          if (isEnvelopedVerifiableCredentialEntry(entry)) {
+            return new W3cV2EnvelopedVerifiableCredential(entry)
+          }
+
+          throw new CredoError('Unsupported verifiableCredential entry shape in W3cV2Presentation.')
         })
       }
 
@@ -185,7 +191,11 @@ function jsonToCredentialEntry(value: unknown): W3cV2PresentationCredentialEntry
     return new W3cV2DataIntegrityVerifiableCredential({ securedCredential: value })
   }
 
-  return JsonTransformer.fromJSON(value, W3cV2EnvelopedVerifiableCredential)
+  if (isEnvelopedVerifiableCredentialEntry(value)) {
+    return JsonTransformer.fromJSON(value, W3cV2EnvelopedVerifiableCredential)
+  }
+
+  throw new CredoError('Unsupported verifiableCredential entry shape in W3cV2Presentation.')
 }
 
 function credentialEntryToJson(value: unknown) {
