@@ -255,5 +255,4 @@ export class W3cV2DataIntegrityCredentialService {
       credentialEntries: [],
     }
   }
-
 }

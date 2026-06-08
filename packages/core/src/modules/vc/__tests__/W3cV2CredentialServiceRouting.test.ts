@@ -340,7 +340,10 @@ describe('W3cV2CredentialService routing', () => {
       }),
     }
 
-    const realDiService = new W3cV2DataIntegrityCredentialService(proofService as never, contextPolicyValidator as never)
+    const realDiService = new W3cV2DataIntegrityCredentialService(
+      proofService as never,
+      contextPolicyValidator as never
+    )
     const proofPurposeSpy = vi
       .spyOn(W3cV2DataIntegrityProofPurposeValidator.prototype, 'validate')
       .mockResolvedValue(undefined)

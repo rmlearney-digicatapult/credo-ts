@@ -162,7 +162,7 @@ function buildFixture(
 }
 
 // -----------------------------------------------------------------------------
-// 15 matrix fixtures: 3 outer x 5 inner
+// 18 matrix fixtures: 3 outer x 6 inner
 // NOTE: outerEncoded/nestedEncoded are generated static cryptographic leaf values.
 // -----------------------------------------------------------------------------
 
