@@ -12,8 +12,17 @@ import {
   W3cV2Presentation,
   W3cV2SdJwtVerifiableCredential,
 } from '@credo-ts/core'
+import { DrizzleStorageModule } from '@credo-ts/drizzle-storage'
+import { anoncredsBundle } from '@credo-ts/drizzle-storage/anoncreds'
+import { coreBundle } from '@credo-ts/drizzle-storage/core'
+import { didcommBundle } from '@credo-ts/drizzle-storage/didcomm'
 
 import { createDidKidVerificationMethod, getAgentOptions } from '../packages/core/tests/helpers'
+import {
+  createDrizzlePostgresTestDatabase,
+  type DrizzlePostgresTestDatabase,
+  pushDrizzleSchema,
+} from '../packages/drizzle-storage/tests/testDatabase'
 
 type IssuanceCase = {
   name: string
@@ -211,10 +220,48 @@ describe('W3C VC 2.0 format e2e matrix (transport-agnostic)', () => {
   let holderAgent: Agent
   let issuerDidRef: DidRef
   let holderDidRef: DidRef
+  let issuerPostgresDatabase: DrizzlePostgresTestDatabase
+  let holderPostgresDatabase: DrizzlePostgresTestDatabase
 
   beforeEach(async () => {
-    issuerAgent = new Agent(getAgentOptions('VC2 E2E Issuer'))
-    holderAgent = new Agent(getAgentOptions('VC2 E2E Holder'))
+    issuerPostgresDatabase = await createDrizzlePostgresTestDatabase()
+    holderPostgresDatabase = await createDrizzlePostgresTestDatabase()
+
+    const issuerOptions = getAgentOptions('VC2 E2E Issuer', undefined, {}, undefined, {
+      requireDidcomm: true,
+      drizzle: issuerPostgresDatabase.drizzle,
+    })
+    const holderOptions = getAgentOptions('VC2 E2E Holder', undefined, {}, undefined, {
+      requireDidcomm: true,
+      drizzle: holderPostgresDatabase.drizzle,
+    })
+
+    const issuerDrizzle = new DrizzleStorageModule({
+      database: issuerPostgresDatabase.drizzle,
+      bundles: [coreBundle, didcommBundle, anoncredsBundle],
+    })
+    const holderDrizzle = new DrizzleStorageModule({
+      database: holderPostgresDatabase.drizzle,
+      bundles: [coreBundle, didcommBundle, anoncredsBundle],
+    })
+
+    await pushDrizzleSchema(issuerDrizzle)
+    await pushDrizzleSchema(holderDrizzle)
+
+    issuerAgent = new Agent({
+      ...issuerOptions,
+      modules: {
+        ...issuerOptions.modules,
+        drizzle: issuerDrizzle,
+      },
+    })
+    holderAgent = new Agent({
+      ...holderOptions,
+      modules: {
+        ...holderOptions.modules,
+        drizzle: holderDrizzle,
+      },
+    })
 
     await issuerAgent.initialize()
     await holderAgent.initialize()
@@ -224,8 +271,10 @@ describe('W3C VC 2.0 format e2e matrix (transport-agnostic)', () => {
   })
 
   afterEach(async () => {
-    await issuerAgent.shutdown()
-    await holderAgent.shutdown()
+    await issuerAgent?.shutdown()
+    await holderAgent?.shutdown()
+    await issuerPostgresDatabase?.teardown()
+    await holderPostgresDatabase?.teardown()
   })
 
   describe('jwt-vc / jwt-vp', () => {
