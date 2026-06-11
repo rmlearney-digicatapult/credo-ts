@@ -7,6 +7,7 @@ import { asArray, JsonTransformer, MessageValidator, nowInSeconds } from '../../
 import { getPublicJwkFromVerificationMethod } from '../../dids/domain/key-type/keyDidMapping'
 import { extractKeyFromHolderBinding } from '../../sd-jwt-vc/utils'
 import type { W3cV2VerifyCredentialResult, W3cV2VerifyPresentationResult } from '../models'
+import { validateCredentialSubjectAuthentication } from '../util'
 import {
   extractHolderFromPresentationCredentials,
   getVerificationMethodForJwt,

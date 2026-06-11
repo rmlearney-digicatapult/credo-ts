@@ -19,6 +19,7 @@ import type {
   W3cV2VerifyCredentialResult,
   W3cV2VerifyPresentationResult,
 } from '../models'
+import { validateCredentialSubjectAuthentication } from '../util'
 import {
   extractHolderFromPresentationCredentials,
   getVerificationMethodForJwt,

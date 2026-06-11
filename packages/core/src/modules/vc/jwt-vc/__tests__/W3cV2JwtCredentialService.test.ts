@@ -19,7 +19,7 @@ import { JsonTransformer, TypedArrayEncoder } from '../../../../utils'
 import { CacheModuleConfig, InMemoryLruCache } from '../../../cache'
 import { DidJwk, DidKey, DidRepository, DidsApi, DidsModuleConfig } from '../../../dids'
 import { KeyManagementApi, KnownJwaSignatureAlgorithms, PublicJwk } from '../../../kms'
-import { X509ModuleConfig } from '../../../x509'
+import { X509ModuleConfig } from '../../../x509/X509ModuleConfig'
 import { CREDENTIALS_CONTEXT_V2_URL } from '../../constants'
 import {
   ClaimFormat,
