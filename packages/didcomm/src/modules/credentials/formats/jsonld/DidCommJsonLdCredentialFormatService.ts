@@ -1,13 +1,11 @@
-import type { AgentContext, DidDocument } from '@credo-ts/core'
+import type { AgentContext } from '@credo-ts/core'
 import {
   ClaimFormat,
   CredoError,
   DidResolverService,
-  DidsApi,
   findVerificationMethodByKeyType,
   JsonEncoder,
   JsonTransformer,
-  parseDid,
   utils,
   W3cCredential,
   W3cCredentialRecord,
@@ -278,7 +276,6 @@ export class DidCommJsonLdCredentialFormatService
     credentialAsJson: JsonCredential,
     credentialRequest: JsonLdFormatDataCredentialDetail
   ): Promise<string> {
-    const didsApi = agentContext.dependencyManager.resolve(DidsApi)
     const didResolver = agentContext.dependencyManager.resolve(DidResolverService)
     const w3cJsonLdCredentialService = agentContext.dependencyManager.resolve(W3cJsonLdCredentialService)
 
@@ -290,6 +287,8 @@ export class DidCommJsonLdCredentialFormatService
     if (typeof issuerDid !== 'string') {
       issuerDid = issuerDid.id
     }
+    // this will throw an error if the issuer did is invalid
+    const issuerDidDocument = await didResolver.resolveDidDocument(agentContext, issuerDid)
 
     // find first key which matches proof type
     const proofType = credentialRequest.options.proofType
@@ -301,23 +300,8 @@ export class DidCommJsonLdCredentialFormatService
       throw new CredoError(`No Key Type found for proofType ${proofType}`)
     }
 
-    // Support issuer DID documents with separate keys for different purposes
-    const proofPurpose = credentialRequest.options.proofPurpose ?? 'assertionMethod'
-
-    // Try created DID first (local, faster, no network call); fall back to network resolution
-    let issuerDidDocument: DidDocument
-    try {
-      const parsedDid = parseDid(issuerDid)
-      const resolved = await didsApi.resolveCreatedDidDocumentWithKeys(parsedDid.did)
-      issuerDidDocument = resolved.didDocument
-    } catch (_error) {
-      // Fall back to network resolution if DID is not locally stored
-      // this will throw an error if the issuer did is invalid
-      issuerDidDocument = await didResolver.resolveDidDocument(agentContext, issuerDid)
-    }
-
     const verificationMethod = await findVerificationMethodByKeyType(keyType[0], issuerDidDocument, [
-      proofPurpose,
+      'assertionMethod',
       'verificationMethod',
     ])
 
