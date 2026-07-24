@@ -1,4 +1,4 @@
-import type { AgentContext } from '@credo-ts/core'
+import type { AgentContext, DidDocument } from '@credo-ts/core'
 import {
   ClaimFormat,
   CredoError,
@@ -304,37 +304,28 @@ export class DidCommJsonLdCredentialFormatService
     // Support issuer DID documents with separate keys for different purposes
     const proofPurpose = credentialRequest.options.proofPurpose ?? 'assertionMethod'
 
+    // Try created DID first (local, faster, no network call); fall back to network resolution
+    let issuerDidDocument: DidDocument
     try {
-      // Try created DID first (local, faster, no network call)
       const parsedDid = parseDid(issuerDid)
-      const { didDocument } = await didsApi.resolveCreatedDidDocumentWithKeys(parsedDid.did)
-
-      const verificationMethod = await findVerificationMethodByKeyType(keyType[0], didDocument, [
-        proofPurpose,
-        'verificationMethod',
-      ])
-
-      if (!verificationMethod) {
-        throw new CredoError(`Missing verification method for key type ${keyType}`)
-      }
-
-      return verificationMethod.id
+      const resolved = await didsApi.resolveCreatedDidDocumentWithKeys(parsedDid.did)
+      issuerDidDocument = resolved.didDocument
     } catch (_error) {
       // Fall back to network resolution if DID is not locally stored
       // this will throw an error if the issuer did is invalid
-      const issuerDidDocument = await didResolver.resolveDidDocument(agentContext, issuerDid)
-
-      const verificationMethod = await findVerificationMethodByKeyType(keyType[0], issuerDidDocument, [
-        proofPurpose,
-        'verificationMethod',
-      ])
-
-      if (!verificationMethod) {
-        throw new CredoError(`Missing verification method for key type ${keyType}`)
-      }
-
-      return verificationMethod.id
+      issuerDidDocument = await didResolver.resolveDidDocument(agentContext, issuerDid)
     }
+
+    const verificationMethod = await findVerificationMethodByKeyType(keyType[0], issuerDidDocument, [
+      proofPurpose,
+      'verificationMethod',
+    ])
+
+    if (!verificationMethod) {
+      throw new CredoError(`Missing verification method for key type ${keyType}`)
+    }
+
+    return verificationMethod.id
   }
   /**
    * Processes an incoming credential - retrieve metadata, retrieve payload and store it in the Indy wallet
