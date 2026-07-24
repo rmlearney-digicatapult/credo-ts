@@ -301,7 +301,7 @@ export class DidCommJsonLdCredentialFormatService
       throw new CredoError(`No Key Type found for proofType ${proofType}`)
     }
 
-    // Support issuer DID documents with separate keys for different purposes (authentication vs assertionMethod).
+    // Support issuer DID documents with separate keys for different purposes
     const proofPurpose = credentialRequest.options.proofPurpose ?? 'assertionMethod'
 
     try {
