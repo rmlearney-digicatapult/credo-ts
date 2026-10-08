@@ -764,9 +764,6 @@ importers:
       '@types/events':
         specifier: ^3.0.3
         version: 3.0.3
-      '@types/ws':
-        specifier: 'catalog:'
-        version: 8.18.2
       '@verifiables/request-converter':
         specifier: ^0.2.0
         version: 0.2.0(dcql@3.0.1(typescript@5.9.3))
