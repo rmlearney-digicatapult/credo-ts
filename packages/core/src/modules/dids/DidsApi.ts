@@ -8,7 +8,7 @@ import type { ImportDidOptions } from './DidsApiOptions'
 import { DidsModuleConfig } from './DidsModuleConfig'
 import {
   type DidPurpose,
-  getKmsKeyIdForVerifiacationMethod,
+  getKmsKeyIdForVerificationMethod,
   getPublicJwkFromVerificationMethod,
   type VerificationMethod,
 } from './domain'
@@ -209,7 +209,7 @@ export class DidsApi {
 
     const verificationMethod = didDocument.dereferenceKey(didUrl, allowedPurposes)
     const publicJwk = getPublicJwkFromVerificationMethod(verificationMethod)
-    publicJwk.keyId = getKmsKeyIdForVerifiacationMethod(verificationMethod, keys) ?? publicJwk.legacyKeyId
+    publicJwk.keyId = getKmsKeyIdForVerificationMethod(verificationMethod, keys) ?? publicJwk.legacyKeyId
 
     return {
       verificationMethod,
@@ -224,7 +224,7 @@ export class DidsApi {
       throw new RecordNotFoundError(`Created did '${did}' not found`, { recordType: DidRecord.type })
     }
 
-    const keyId = getKmsKeyIdForVerifiacationMethod(verificationMethod, didRecord.keys)
+    const keyId = getKmsKeyIdForVerificationMethod(verificationMethod, didRecord.keys)
     if (!keyId) {
       throw new CredoError(`No locally managed key is associated with verification method '${verificationMethod.id}'`)
     }
