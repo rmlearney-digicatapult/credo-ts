@@ -1,8 +1,8 @@
-import { p256, p384 } from '@noble/curves/nist.js'
+import { p256, p384, p521 } from '@noble/curves/nist.js'
 import { AsnConvert, AsnParser } from '@peculiar/asn1-schema'
 import { SubjectPublicKeyInfo } from '@peculiar/asn1-x509'
 import type { AgentContext } from '../../agent'
-import { KeyManagementApi, PublicJwk } from '../../modules/kms'
+import { KeyManagementApi, KeyManagementError, PublicJwk } from '../../modules/kms'
 import { Hasher } from '../hashes'
 import { CredoWebCryptoError } from './CredoWebCryptoError'
 import { CredoWebCryptoKey } from './CredoWebCryptoKey'
@@ -65,7 +65,6 @@ export class CredoWalletWebCrypto {
         }
 
         return p256.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
-          // we use a custom hash
           prehash: false,
           lowS: false,
         })
@@ -78,19 +77,36 @@ export class CredoWalletWebCrypto {
         }
 
         return p384.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
-          // we use a custom hash
+          prehash: false,
+          lowS: false,
+        })
+      }
+      if (publicKey.kty === 'EC' && publicKey.crv === 'P-521' && hashAlg !== 'SHA-512') {
+        if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-384') {
+          throw new CredoWebCryptoError(
+            `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
+          )
+        }
+
+        return p521.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
           prehash: false,
           lowS: false,
         })
       }
     }
 
-    const jwaAlgorithm = keyParamsToJwaAlgorithm(algorithm, key)
+    const kmsAlgorithm = keyParamsToJwaAlgorithm(algorithm, key)
+    const capability = await this.kms.canPerform({ operation: 'verify', algorithm: kmsAlgorithm })
+    if (!capability.supported) {
+      throw new KeyManagementError(capability.message)
+    }
+
     const { verified } = await this.kms.verify({
+      backend: capability.backend,
       key: {
         publicJwk: key.publicJwk.toJson(),
       },
-      algorithm: jwaAlgorithm,
+      algorithm: kmsAlgorithm,
       signature,
       data: message,
     })

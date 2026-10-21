@@ -1,4 +1,5 @@
 import { type AgentContext, JsonEncoder, Kms, TypedArrayEncoder, utils } from '@credo-ts/core'
+import { p521 } from '@noble/curves/nist.js'
 import type { JwkProps, KeyEntryObject, Session } from '@openwallet-foundation/askar-shared'
 import {
   CryptoBox,
@@ -71,6 +72,9 @@ export class AskarKeyManagementService implements Kms.KeyManagementService {
     }
 
     if (operation.operation === 'sign' || operation.operation === 'verify') {
+      // TODO: Remove when Askar gains native P-521 support
+      if (operation.operation === 'verify' && operation.algorithm === 'ES512') return true
+
       return AskarKeyManagementService.algToSigType[operation.algorithm] !== undefined
     }
 
@@ -309,6 +313,33 @@ export class AskarKeyManagementService implements Kms.KeyManagementService {
 
   public async verify(agentContext: AgentContext, options: Kms.KmsVerifyOptions): Promise<Kms.KmsVerifyReturn> {
     const { algorithm, data, signature, key: keyInput } = options
+
+    // TODO: Remove when Askar gains native P-521 support
+    if (algorithm === 'ES512') {
+      let askarKey: Key | undefined
+      try {
+        let publicJwk: Kms.KmsJwkPublic | undefined = keyInput.publicJwk
+        if (keyInput.keyId) {
+          askarKey = (await this.getKeyAsserted(agentContext, keyInput.keyId)).key
+          publicJwk = this.publicJwkFromKey(agentContext, askarKey, { kid: keyInput.keyId })
+        }
+
+        if (publicJwk?.kty === 'EC' && publicJwk.crv === 'P-521') {
+          Kms.assertAllowedSigningAlgForKey(publicJwk, algorithm)
+          Kms.assertKeyAllowsVerify(publicJwk)
+          const jwk = Kms.PublicJwk.fromPublicJwk(publicJwk)
+          if (!jwk.is(Kms.P521PublicJwk)) {
+            throw new Kms.KeyManagementError('Unable to convert P-521 public JWK for verification')
+          }
+
+          return p521.verify(signature, data, jwk.publicKey.publicKey, { lowS: false })
+            ? { verified: true, publicJwk }
+            : { verified: false }
+        }
+      } finally {
+        askarKey?.handle.free()
+      }
+    }
 
     // Get askar sig type (and handles unsupported alg)
     const sigType = this.assertedSigTypeForAlg(algorithm)
