@@ -57,54 +57,66 @@ export class CredoWalletWebCrypto {
     // or we can do something like ES256-ph (pre-hashed for more generic)
     if (algorithm.name === 'ECDSA') {
       const hashAlg = typeof algorithm.hash === 'string' ? algorithm.hash : algorithm.hash.name
-      if (publicKey.kty === 'EC' && publicKey.crv === 'P-256' && hashAlg !== 'SHA-256') {
-        if (hashAlg !== 'SHA-384' && hashAlg !== 'SHA-512') {
-          throw new CredoWebCryptoError(
-            `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
-          )
+
+      if (publicKey.kty === 'EC') {
+        const standardHashByCurve = {
+          'P-256': 'SHA-256',
+          'P-384': 'SHA-384',
+          'P-521': 'SHA-512',
+          secp256k1: 'SHA-256',
+        } as const
+        const standardHash = standardHashByCurve[publicKey.crv]
+        const hasStandardHash = hashAlg === standardHash
+
+        const jwaAlgorithm = hasStandardHash ? keyParamsToJwaAlgorithm(algorithm, key) : undefined
+        const hasKmsWithStandardAlgorithm =
+          jwaAlgorithm !== undefined &&
+          this.kms.supportedBackendsForOperation({ operation: 'verify', algorithm: jwaAlgorithm }).length > 0
+
+        if (!hasKmsWithStandardAlgorithm) {
+          if (publicKey.crv === 'P-256') {
+            if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-384' && hashAlg !== 'SHA-512') {
+              throw new CredoWebCryptoError(
+                `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
+              )
+            }
+
+            return p256.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
+              // we use a custom hash
+              prehash: false,
+              lowS: false,
+            })
+          }
+
+          if (publicKey.crv === 'P-384') {
+            if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-384' && hashAlg !== 'SHA-512') {
+              throw new CredoWebCryptoError(
+                `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
+              )
+            }
+
+            return p384.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
+              // we use a custom hash
+              prehash: false,
+              lowS: false,
+            })
+          }
+
+          if (publicKey.crv === 'P-521') {
+            if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-384' && hashAlg !== 'SHA-512') {
+              throw new CredoWebCryptoError(
+                `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
+              )
+            }
+
+            return p521.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
+              // we use a custom hash
+              prehash: false,
+              lowS: false,
+            })
+          }
         }
-
-        return p256.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
-          // we use a custom hash
-          prehash: false,
-          lowS: false,
-        })
       }
-      if (publicKey.kty === 'EC' && publicKey.crv === 'P-384' && hashAlg !== 'SHA-384') {
-        if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-512') {
-          throw new CredoWebCryptoError(
-            `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
-          )
-        }
-
-        return p384.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
-          // we use a custom hash
-          prehash: false,
-          lowS: false,
-        })
-      }
-
-      // Unlike P-256/P-384 above, verify all supported P-521 hashes locally: only SHA-512 maps to ES512,
-      // which some KMS backends do not support, while SHA-256 and SHA-384 have no P-521 KMS mapping.
-      if (publicKey.kty === 'EC' && publicKey.crv === 'P-521') {
-        if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-384' && hashAlg !== 'SHA-512') {
-          throw new CredoWebCryptoError(
-            `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
-          )
-        }
-
-        return p521.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
-          // we use a custom hash
-          prehash: false,
-          lowS: false,
-        })
-      }
-
-      // Curve families in use in X.509 PKIs but not supported for verification at this time
-      // (X509ChainBuilder silently stops building the chain at certificates signed with them):
-      //  - Brainpool: EU/German eID PKIs; permitted for mdoc by ISO/IEC 18013-5
-      //  - GOST R 34.10-2012: Russian PKI
-      //  - SM2: Chinese PKI
     }
 
     const jwaAlgorithm = keyParamsToJwaAlgorithm(algorithm, key)

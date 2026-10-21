@@ -112,12 +112,64 @@ describe('CredoWebCrypto', () => {
           p521WebCrypto.subtle.verify({ name: 'ECDSA', hash }, key, tamperedSignature, message)
         ).resolves.toBe(false)
 
-        expect(isOperationSupported).not.toHaveBeenCalledWith(
-          expect.anything(),
-          expect.objectContaining({ operation: 'verify', algorithm: 'ES512' })
-        )
+        if (hash === 'SHA-512') {
+          expect(isOperationSupported).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ operation: 'verify', algorithm: 'ES512' })
+          )
+        } else {
+          expect(isOperationSupported).not.toHaveBeenCalled()
+        }
         expect(verify).not.toHaveBeenCalled()
       }
     )
+
+    it('uses a KMS backend that supports ES512 to verify P-521/SHA-512 signatures', async () => {
+      const verify = vi.fn().mockResolvedValue({ verified: true })
+      const isOperationSupported = vi.fn(
+        (_agentContext: unknown, operation: { operation: string; algorithm?: string }) =>
+          operation.operation === 'verify' && operation.algorithm === 'ES512'
+      )
+      const backend = {
+        backend: 'es512',
+        isOperationSupported,
+        verify,
+      } as unknown as KeyManagementService
+      const p521WebCrypto = new CredoWebCrypto(getAgentContext({ kmsBackends: [backend] }))
+      const secretKey = p521.utils.randomSecretKey()
+      const publicKey = p521.getPublicKey(secretKey, false)
+      const message = new TextEncoder().encode('P-521 KMS verification')
+      const digest = Hasher.hash(message, 'sha-512')
+      const signature = p521.sign(digest, secretKey, { prehash: false, lowS: false })
+      const key = await p521WebCrypto.subtle.importKey(
+        'jwk',
+        {
+          kty: 'EC',
+          crv: 'P-521',
+          x: TypedArrayEncoder.toBase64Url(publicKey.subarray(1, 67)),
+          y: TypedArrayEncoder.toBase64Url(publicKey.subarray(67)),
+        },
+        { name: 'ECDSA', namedCurve: 'P-521' },
+        true,
+        ['verify']
+      )
+
+      await expect(
+        p521WebCrypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-512' }, key, signature, message)
+      ).resolves.toBe(true)
+
+      expect(isOperationSupported).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ operation: 'verify', algorithm: 'ES512' })
+      )
+      expect(verify).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          algorithm: 'ES512',
+          data: message,
+          signature,
+        })
+      )
+    })
   })
 })
