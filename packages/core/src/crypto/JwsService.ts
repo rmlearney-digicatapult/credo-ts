@@ -4,6 +4,7 @@ import {
   assertJwkAsymmetric,
   asymmetricPublicJwkMatches,
   getJwkHumanDescription,
+  KeyManagementAlgorithmNotSupportedError,
   KeyManagementApi,
   KeyManagementError,
   type KnownJwaSignatureAlgorithm,
@@ -35,10 +36,9 @@ export class JwsService {
 
     const kms = agentContext.dependencyManager.resolve(KeyManagementApi)
 
-    const key = await kms.getPublicKey({ keyId: options.keyId })
+    const resolvedKey = await kms.resolveKey({ keyId: options.keyId })
+    const key = resolvedKey.jwk
     assertJwkAsymmetric(key)
-
-    const publicJwk = PublicJwk.fromPublicJwk(key)
 
     // Make sure the options.x5c and x5c from protectedHeader are the same.
     if (x5c) {
@@ -57,13 +57,15 @@ export class JwsService {
       throw new CredoError('Protected header JWK does not match key for signing.')
     }
 
-    // Validate the options.key used for signing against the jws options
-    if (!publicJwk.supportedSignatureAlgorithms.includes(alg)) {
-      throw new CredoError(
-        `alg '${alg}' is not a valid JWA signature algorithm for this jwk with ${publicJwk.jwkTypeHumanDescription}. Supported algorithms are ${publicJwk.supportedSignatureAlgorithms.join(
-          ', '
-        )}`
-      )
+    const capability = await kms.canPerform({ operation: 'sign', algorithm: alg }, resolvedKey)
+    if (!capability.supported) {
+      if (capability.reason === 'backend-unsupported-request') {
+        throw new KeyManagementAlgorithmNotSupportedError(
+          `signing with JWA signature algorithm '${alg}'`,
+          resolvedKey.backend
+        )
+      }
+      throw new KeyManagementError(capability.message)
     }
 
     const payload =
@@ -75,7 +77,8 @@ export class JwsService {
     const signResult = await kms.sign({
       algorithm: alg,
       data: TypedArrayEncoder.fromUtf8String(`${base64UrlProtectedHeader}.${base64Payload}`),
-      keyId: options.keyId,
+      keyId: resolvedKey.keyId,
+      backend: capability.backend,
     })
     const signature = TypedArrayEncoder.toBase64Url(signResult.signature)
 

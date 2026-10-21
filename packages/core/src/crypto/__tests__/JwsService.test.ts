@@ -1,6 +1,7 @@
 import type { X509Certificate } from '@credo-ts/core'
 import { CredoError, X509ModuleConfig, X509Service } from '@credo-ts/core'
 import { NativeAskar } from '@openwallet-foundation/askar-nodejs'
+import { afterEach, vi } from 'vitest'
 import { AskarKeyManagementService, AskarModuleConfig, transformPrivateKeyToPrivateJwk } from '../../../../askar/src'
 import { AskarStoreManager } from '../../../../askar/src/AskarStoreManager'
 import { NodeFileSystem } from '../../../../node/src/NodeFileSystem'
@@ -9,7 +10,11 @@ import type { AgentContext } from '../../agent'
 import { DidKey } from '../../modules/dids'
 import {
   Ed25519PublicJwk,
+  KeyManagementAlgorithmNotSupportedError,
   KeyManagementApi,
+  KeyManagementError,
+  KeyManagementKeyNotFoundError,
+  KeyManagementModuleConfig,
   KnownJwaSignatureAlgorithms,
   P256PublicJwk,
   PublicJwk,
@@ -32,6 +37,10 @@ describe('JwsService', () => {
   let didJwsz6MkvKey: PublicJwk<Ed25519PublicJwk>
   let didJwsz6MkvCertificate: X509Certificate
   let didJwszDnaeyKey: PublicJwk<P256PublicJwk>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
 
   beforeAll(async () => {
     const askarModuleConfig = new AskarModuleConfig({
@@ -141,6 +150,75 @@ describe('JwsService', () => {
     })
 
     expect(jws).toEqual(didJwszDnaey.JWS_JSON)
+  })
+
+  it('resolves the signing key once and executes on the resolved backend', async () => {
+    const kms = agentContext.resolve(KeyManagementApi)
+    const backend = agentContext.resolve(KeyManagementModuleConfig).backends[0]
+    const getPublicKey = vi.spyOn(backend, 'getPublicKey')
+    const resolveKey = vi.spyOn(kms, 'resolveKey')
+    const canPerform = vi.spyOn(kms, 'canPerform')
+    const sign = vi.spyOn(kms, 'sign')
+
+    await jwsService.createJwsCompact(agentContext, {
+      payload: JsonEncoder.toUint8Array(didJwszDnaey.DATA_JSON),
+      keyId: didJwszDnaeyKey.keyId,
+      protectedHeaderOptions: { alg: KnownJwaSignatureAlgorithms.ES256 },
+    })
+
+    expect(resolveKey).toHaveBeenCalledTimes(1)
+    expect(canPerform).toHaveBeenCalledTimes(1)
+    expect(getPublicKey).toHaveBeenCalledTimes(1)
+    expect(sign).toHaveBeenCalledWith(
+      expect.objectContaining({ keyId: didJwszDnaeyKey.keyId, backend: 'askar', algorithm: 'ES256' })
+    )
+  })
+
+  it('throws a backend algorithm error when the owning backend cannot sign with the requested algorithm', async () => {
+    const kms = agentContext.resolve(KeyManagementApi)
+    const sign = vi.spyOn(kms, 'sign')
+
+    await expect(
+      jwsService.createJwsCompact(agentContext, {
+        payload: JsonEncoder.toUint8Array(didJwszDnaey.DATA_JSON),
+        keyId: didJwszDnaeyKey.keyId,
+        protectedHeaderOptions: { alg: KnownJwaSignatureAlgorithms.ES512 },
+      })
+    ).rejects.toThrow(
+      new KeyManagementAlgorithmNotSupportedError("signing with JWA signature algorithm 'ES512'", 'askar')
+    )
+    expect(sign).not.toHaveBeenCalled()
+  })
+
+  it('rejects signing when the key usage does not allow signing', async () => {
+    const backend = agentContext.resolve(KeyManagementModuleConfig).backends[0]
+    const getPublicKey = backend.getPublicKey.bind(backend)
+    const getPublicKeySpy = vi.spyOn(backend, 'getPublicKey').mockImplementation(async (context, keyId) => {
+      const jwk = await getPublicKey(context, keyId)
+      return jwk ? { ...jwk, use: 'enc' } : null
+    })
+    const kms = agentContext.resolve(KeyManagementApi)
+    const sign = vi.spyOn(kms, 'sign')
+
+    await expect(
+      jwsService.createJwsCompact(agentContext, {
+        payload: JsonEncoder.toUint8Array(didJwszDnaey.DATA_JSON),
+        keyId: didJwszDnaeyKey.keyId,
+        protectedHeaderOptions: { alg: KnownJwaSignatureAlgorithms.ES256 },
+      })
+    ).rejects.toThrow(KeyManagementError)
+    expect(getPublicKeySpy).toHaveBeenCalledTimes(1)
+    expect(sign).not.toHaveBeenCalled()
+  })
+
+  it('preserves the key-not-found error for an unknown signing key id', async () => {
+    await expect(
+      jwsService.createJwsCompact(agentContext, {
+        payload: JsonEncoder.toUint8Array(didJwszDnaey.DATA_JSON),
+        keyId: 'unknown-signing-key',
+        protectedHeaderOptions: { alg: KnownJwaSignatureAlgorithms.ES256 },
+      })
+    ).rejects.toThrow(KeyManagementKeyNotFoundError)
   })
 
   it('creates a compact jws', async () => {
