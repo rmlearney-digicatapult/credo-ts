@@ -71,6 +71,12 @@ export type KmsOperation =
   | KmsOperationDecrypt
   | KmsOperationRandomBytes
 
+export type KmsCapabilityOperation =
+  | KmsOperationSign
+  | KmsOperationVerify
+  | (KmsOperationEncrypt & { keyAgreement?: { keyId?: never } })
+  | (KmsOperationDecrypt & { keyAgreement?: { keyId?: never } })
+
 export function getKmsOperationHumanDescription(operation: KmsOperation) {
   if (operation.operation === 'deleteKey') {
     return "'deleteKey' operation"

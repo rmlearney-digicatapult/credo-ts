@@ -1,8 +1,13 @@
+import type { Mock } from 'vitest'
+import { vi } from 'vitest'
 import { NodeInMemoryKeyManagementStorage, NodeKeyManagementService } from '../../../../../node/src'
 import { getAgentOptions } from '../../../../tests/helpers'
 import { Agent } from '../../../agent/Agent'
 import { ZodValidationError } from '../../../error/ZodValidationError'
 import { KeyManagementError } from '../error/KeyManagementError'
+import { KeyManagementKeyMismatchError } from '../error/KeyManagementKeyMismatchError'
+import { KeyManagementKeyNotFoundError } from '../error/KeyManagementKeyNotFoundError'
+import { type KmsJwkPublic, PublicJwk } from '../jwk'
 import { KeyManagementApi } from '../KeyManagementApi'
 import { KeyManagementModuleConfig } from '../KeyManagementModuleConfig'
 import type { KeyManagementService } from '../KeyManagementService'
@@ -10,6 +15,18 @@ import type { KmsOperation } from '../options'
 
 const agentOptions = getAgentOptions('KeyManagementApi')
 const agent = new Agent(agentOptions)
+
+function createKeyBackend(
+  backend: string,
+  keys: ReadonlyMap<string, KmsJwkPublic>,
+  supportsOperation: (operation: KmsOperation) => boolean = () => true
+) {
+  return {
+    backend,
+    isOperationSupported: vi.fn((_agentContext: unknown, operation: KmsOperation) => supportsOperation(operation)),
+    getPublicKey: vi.fn(async (_agentContext: unknown, keyId: string) => keys.get(keyId) ?? null),
+  } as unknown as KeyManagementService & { getPublicKey: Mock; isOperationSupported: Mock }
+}
 
 describe('KeyManagementApi', () => {
   beforeAll(async () => {
@@ -285,6 +302,293 @@ describe('KeyManagementApi', () => {
           data: new Uint8Array([1]),
         })
       ).rejects.toThrow(ZodValidationError)
+    })
+  })
+
+  describe('new KMS capability APIs', () => {
+    test('can enumerate algorithms supported for verification', () => {
+      const verifyOnlyBackend = {
+        backend: 'verify-only',
+        isOperationSupported: (_agentContext: unknown, operation: KmsOperation) =>
+          operation.operation === 'verify' && operation.algorithm === 'ES256',
+      } as unknown as KeyManagementService
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [verifyOnlyBackend] }), agent.context)
+
+      expect(kms.supportedJwaSignatureAlgorithms({ operation: 'verify' })).toEqual(['ES256'])
+      expect(kms.supportedJwaSignatureAlgorithms()).toEqual([])
+    })
+
+    test('requires a key for sign operations at the type level', async () => {
+      // @ts-expect-error sign requires a key reference
+      const signWithoutKey = agent.kms.canPerform({ operation: 'sign', algorithm: 'ES256' })
+      await expect(signWithoutKey).resolves.toMatchObject({
+        supported: false,
+        reason: 'key-not-found',
+      })
+    })
+
+    test('requires a key for decrypt operations at the type level', async () => {
+      // @ts-expect-error decrypt requires a key reference
+      const decryptWithoutKey = agent.kms.canPerform({ operation: 'decrypt', decryption: { algorithm: 'HPKE' } })
+      await expect(decryptWithoutKey).resolves.toMatchObject({ supported: false, reason: 'key-not-found' })
+    })
+
+    test('resolves explicit key ids and returns only public metadata', async () => {
+      const { keyId } = await agent.kms.createKey({ type: { kty: 'oct', algorithm: 'aes', length: 256 } })
+      const resolved = await agent.kms.resolveKey({ keyId })
+
+      expect(resolved).toMatchObject({ keyId, backend: 'node', source: 'explicit', jwk: { kty: 'oct' } })
+      expect(resolved.jwk).not.toHaveProperty('k')
+    })
+
+    test('tries kmsKeyId before legacy id and reports legacy resolution', async () => {
+      const { publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const referencePublicJwk = PublicJwk.fromPublicJwk(publicJwk)
+      const legacyId = referencePublicJwk.legacyKeyId
+      const keyBackend = createKeyBackend('legacy', new Map([[legacyId, publicJwk]]))
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [keyBackend] }), agent.context)
+
+      const resolved = await kms.resolveKey({ publicJwk: referencePublicJwk, kmsKeyId: 'missing-explicit-id' })
+
+      expect(resolved).toMatchObject({ keyId: legacyId, source: 'legacy' })
+      expect(keyBackend.getPublicKey).toHaveBeenNthCalledWith(1, agent.context, 'missing-explicit-id')
+      expect(keyBackend.getPublicKey).toHaveBeenNthCalledWith(2, agent.context, legacyId)
+    })
+
+    test('does not use legacy id when fallback is disabled', async () => {
+      const { publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const referencePublicJwk = PublicJwk.fromPublicJwk(publicJwk)
+      const keyBackend = createKeyBackend('legacy-disabled', new Map([[referencePublicJwk.legacyKeyId, publicJwk]]))
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [keyBackend] }), agent.context)
+
+      await expect(kms.resolveKey({ publicJwk: referencePublicJwk, allowLegacyKeyId: false })).rejects.toThrow(
+        KeyManagementKeyNotFoundError
+      )
+      expect(keyBackend.getPublicKey).not.toHaveBeenCalled()
+    })
+
+    test('does not derive a legacy id for RSA keys', async () => {
+      const rsaPublicJwk = PublicJwk.fromPublicJwk({ kty: 'RSA', n: 'AQAB', e: 'AQAB' })
+      const keyBackend = createKeyBackend('rsa', new Map())
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [keyBackend] }), agent.context)
+
+      await expect(kms.resolveKey({ publicJwk: rsaPublicJwk })).rejects.toThrow(KeyManagementKeyNotFoundError)
+      expect(keyBackend.getPublicKey).not.toHaveBeenCalled()
+    })
+
+    test('throws a key mismatch when a stored key does not match the public JWK reference', async () => {
+      const firstKey = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const secondKey = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const keyBackend = createKeyBackend('mismatch', new Map([[firstKey.keyId, secondKey.publicJwk]]))
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [keyBackend] }), agent.context)
+
+      await expect(
+        kms.resolveKey({ publicJwk: PublicJwk.fromPublicJwk(firstKey.publicJwk), kmsKeyId: firstKey.keyId })
+      ).rejects.toThrow(KeyManagementKeyMismatchError)
+    })
+
+    test('continues past a mismatched same-id key to a later matching backend', async () => {
+      const referencedKey = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const otherKey = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const mismatchedBackend = createKeyBackend(
+        'mismatched-first',
+        new Map([[referencedKey.keyId, otherKey.publicJwk]])
+      )
+      const matchingBackend = createKeyBackend(
+        'matching-second',
+        new Map([[referencedKey.keyId, referencedKey.publicJwk]])
+      )
+      const kms = new KeyManagementApi(
+        new KeyManagementModuleConfig({ backends: [mismatchedBackend, matchingBackend] }),
+        agent.context
+      )
+
+      await expect(
+        kms.resolveKey({
+          publicJwk: PublicJwk.fromPublicJwk(referencedKey.publicJwk),
+          kmsKeyId: referencedKey.keyId,
+        })
+      ).resolves.toMatchObject({ backend: 'matching-second', source: 'kmsKeyId' })
+    })
+
+    test('returns key mismatches as a distinct capability failure', async () => {
+      const firstKey = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const secondKey = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const keyBackend = createKeyBackend('mismatch-result', new Map([[firstKey.keyId, secondKey.publicJwk]]))
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [keyBackend] }), agent.context)
+
+      await expect(
+        kms.canPerform(
+          { operation: 'sign', algorithm: 'ES256' },
+          { publicJwk: PublicJwk.fromPublicJwk(firstKey.publicJwk), kmsKeyId: firstKey.keyId }
+        )
+      ).resolves.toMatchObject({ supported: false, reason: 'key-mismatch' })
+    })
+
+    test('uses default-if-capable for keyless checks and configured order for key-bound checks', async () => {
+      const { keyId, publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const firstBackend = createKeyBackend('first', new Map([[keyId, publicJwk]]))
+      const defaultBackend = createKeyBackend('default', new Map([[keyId, publicJwk]]))
+      const kms = new KeyManagementApi(
+        new KeyManagementModuleConfig({ backends: [firstBackend, defaultBackend], defaultBackend: 'default' }),
+        agent.context
+      )
+
+      await expect(kms.canPerform({ operation: 'verify', algorithm: 'ES256' })).resolves.toMatchObject({
+        supported: true,
+        backend: 'default',
+      })
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, { keyId })).resolves.toMatchObject({
+        supported: true,
+        backend: 'first',
+      })
+    })
+
+    test('checks operation support before key ownership and selects the first matching backend', async () => {
+      const { keyId, publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const unsupportedOwner = createKeyBackend('unsupported-owner', new Map([[keyId, publicJwk]]), () => false)
+      const capableWithoutKey = createKeyBackend('capable-without-key', new Map())
+      const capableOwner = createKeyBackend('capable-owner', new Map([[keyId, publicJwk]]))
+      const kms = new KeyManagementApi(
+        new KeyManagementModuleConfig({
+          backends: [unsupportedOwner, capableWithoutKey, capableOwner],
+          defaultBackend: 'unsupported-owner',
+        }),
+        agent.context
+      )
+
+      await expect(kms.canPerform({ operation: 'verify', algorithm: 'ES256' })).resolves.toMatchObject({
+        supported: true,
+        backend: 'capable-without-key',
+      })
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, { keyId })).resolves.toMatchObject({
+        supported: true,
+        backend: 'capable-owner',
+      })
+      expect(unsupportedOwner.getPublicKey).not.toHaveBeenCalled()
+      expect(capableWithoutKey.getPublicKey).toHaveBeenCalled()
+      expect(capableOwner.getPublicKey).toHaveBeenCalled()
+    })
+
+    test('pins resolved-key checks to their backend without looking up the key again', async () => {
+      const { keyId, publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const backend = createKeyBackend('pinned', new Map())
+      const alternateBackend = createKeyBackend('alternate', new Map())
+      const kms = new KeyManagementApi(
+        new KeyManagementModuleConfig({ backends: [backend, alternateBackend] }),
+        agent.context
+      )
+      const resolvedKey = {
+        keyId,
+        backend: 'pinned',
+        jwk: publicJwk,
+        publicJwk: PublicJwk.fromPublicJwk(publicJwk),
+        source: 'explicit' as const,
+      }
+
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, resolvedKey)).resolves.toMatchObject({
+        supported: true,
+        backend: 'pinned',
+      })
+      expect(backend.getPublicKey).not.toHaveBeenCalled()
+      backend.isOperationSupported.mockReturnValue(false)
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, resolvedKey)).resolves.toMatchObject({
+        supported: false,
+        reason: 'backend-unsupported-request',
+        backend: 'pinned',
+      })
+      expect(alternateBackend.getPublicKey).not.toHaveBeenCalled()
+    })
+
+    test('reports missing keys, unsupported backend requests, incompatible key algorithms, and disallowed usage distinctly', async () => {
+      const { keyId, publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const owner = createKeyBackend('owner', new Map([[keyId, publicJwk]]))
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [owner] }), agent.context)
+
+      await expect(
+        kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, { keyId: 'missing' })
+      ).resolves.toMatchObject({
+        supported: false,
+        reason: 'key-not-found',
+      })
+      owner.isOperationSupported.mockReturnValue(false)
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, { keyId })).resolves.toMatchObject({
+        supported: false,
+        reason: 'backend-unsupported-request',
+      })
+      owner.isOperationSupported.mockReturnValue(true)
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES384' }, { keyId })).resolves.toMatchObject({
+        supported: false,
+        reason: 'incompatible-key-algorithm',
+      })
+
+      owner.getPublicKey.mockResolvedValue({ ...publicJwk, use: 'enc' })
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, { keyId })).resolves.toMatchObject({
+        supported: false,
+        reason: 'disallowed-key-usage',
+      })
+    })
+
+    test('does not repeat KMS lookups when distinguishing unsupported backend request from missing key', async () => {
+      const { keyId, publicJwk } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      const capableBackend = createKeyBackend('capable-without-key', new Map())
+      const unsupportedOwner = createKeyBackend('unsupported-owner', new Map([[keyId, publicJwk]]), () => false)
+      const kms = new KeyManagementApi(
+        new KeyManagementModuleConfig({ backends: [capableBackend, unsupportedOwner] }),
+        agent.context
+      )
+
+      await expect(kms.canPerform({ operation: 'sign', algorithm: 'ES256' }, { keyId })).resolves.toMatchObject({
+        supported: false,
+        reason: 'backend-unsupported-request',
+        backend: 'unsupported-owner',
+      })
+      expect(capableBackend.getPublicKey).toHaveBeenCalledTimes(1)
+      expect(unsupportedOwner.getPublicKey).toHaveBeenCalledTimes(1)
+    })
+
+    test('checks key type and usage restrictions for oct keys', async () => {
+      const { keyId } = await agent.kms.createKey({ type: { kty: 'oct', algorithm: 'aes', length: 256 } })
+      const decryption = {
+        operation: 'decrypt' as const,
+        decryption: { algorithm: 'A256GCM' as const, iv: new Uint8Array(12), tag: new Uint8Array(16) },
+      }
+      await expect(agent.kms.canPerform(decryption, { keyId })).resolves.toMatchObject({
+        supported: true,
+        backend: 'node',
+      })
+
+      const { keyId: asymmetricKeyId } = await agent.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+      await expect(agent.kms.canPerform(decryption, { keyId: asymmetricKeyId })).resolves.toMatchObject({
+        supported: false,
+        reason: 'incompatible-key-type',
+      })
+
+      const { publicJwk } = await agent.kms.createKey({ type: { kty: 'oct', algorithm: 'aes', length: 256 } })
+      const restrictedBackend = createKeyBackend('restricted-oct', new Map([[keyId, { ...publicJwk, use: 'sig' }]]))
+      const restrictedKms = new KeyManagementApi(
+        new KeyManagementModuleConfig({ backends: [restrictedBackend] }),
+        agent.context
+      )
+      await expect(restrictedKms.canPerform(decryption, { keyId })).resolves.toMatchObject({
+        supported: false,
+        reason: 'disallowed-key-usage',
+      })
+    })
+
+    test('selects a signature algorithm supported by the key owner', async () => {
+      const { keyId, publicJwk } = await agent.kms.createKey({ type: { kty: 'OKP', crv: 'Ed25519' } })
+      const backend = createKeyBackend(
+        'selector',
+        new Map([[keyId, publicJwk]]),
+        (operation) => operation.operation === 'sign' && operation.algorithm === 'Ed25519'
+      )
+      const kms = new KeyManagementApi(new KeyManagementModuleConfig({ backends: [backend] }), agent.context)
+
+      await expect(
+        kms.selectSignatureAlgorithm({ key: { keyId }, candidates: ['EdDSA', 'Ed25519'] })
+      ).resolves.toMatchObject({ algorithm: 'Ed25519', backend: 'selector' })
+      expect(backend.isOperationSupported).toHaveBeenCalledTimes(2)
     })
   })
 })

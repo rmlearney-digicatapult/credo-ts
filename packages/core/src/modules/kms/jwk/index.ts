@@ -27,6 +27,7 @@ export {
   assertKeyAllowsSign,
   assertKeyAllowsVerify,
   keyAllowsDecrypt,
+  keyAllowsDerive,
   keyAllowsEncrypt,
   keyAllowsSign,
   keyAllowsVerify,

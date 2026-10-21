@@ -2,17 +2,30 @@ import { AgentContext } from '../../agent'
 import { injectable } from '../../plugins'
 import { zParseWithErrorHandling } from '../../utils/zod'
 import { KeyManagementError } from './error/KeyManagementError'
+import { KeyManagementKeyMismatchError } from './error/KeyManagementKeyMismatchError'
 import { KeyManagementKeyNotFoundError } from './error/KeyManagementKeyNotFoundError'
 import {
+  asymmetricPublicJwkMatches,
   getJwkHumanDescription,
   type KmsJwkPrivate,
+  type KmsJwkPublic,
   type KnownJwaSignatureAlgorithm,
   KnownJwaSignatureAlgorithms,
+  keyAllowsDecrypt,
+  keyAllowsDerive,
+  keyAllowsEncrypt,
+  keyAllowsSign,
+  keyAllowsVerify,
+  PublicJwk,
+  supportedKeyDerivationAlgsForKey,
+  supportedSigningAlgsForKey,
 } from './jwk'
 import { createKeyTypeForSigningAlgorithm } from './jwk/alg/signing'
 import { KeyManagementModuleConfig } from './KeyManagementModuleConfig'
+import type { KeyManagementService } from './KeyManagementService'
 import {
   getKmsOperationHumanDescription,
+  type KmsCapabilityOperation,
   type KmsDecryptOptions,
   type KmsDeleteKeyOptions,
   type KmsGetPublicKeyOptions,
@@ -38,6 +51,46 @@ import { type KmsImportKeyReturn, zKmsImportKeyOptions } from './options/KmsImpo
 import { zKmsRandomBytesOptions } from './options/KmsRandomBytesOptions'
 import { type KmsSignOptions, zKmsSignOptions } from './options/KmsSignOptions'
 import { type KmsVerifyOptions, zKmsVerifyOptions } from './options/KmsVerifyOptions'
+
+export type KmsKeyReference =
+  | { keyId: string }
+  | { publicJwk: PublicJwk; kmsKeyId?: string; allowLegacyKeyId?: boolean }
+
+export interface ResolvedKmsKey {
+  readonly keyId: string
+  readonly backend: string
+  readonly jwk: KmsJwkPublic
+  readonly publicJwk?: PublicJwk
+  readonly source: 'explicit' | 'kmsKeyId' | 'legacy'
+}
+
+export type KmsCanPerformResult =
+  | { supported: true; backend: string; key?: ResolvedKmsKey }
+  | {
+      supported: false
+      reason:
+        | 'key-not-found'
+        | 'key-mismatch'
+        | 'backend-unsupported-request'
+        | 'incompatible-key-algorithm'
+        | 'incompatible-key-type'
+        | 'disallowed-key-usage'
+      message: string
+      keyId?: string
+      backend?: string
+    }
+
+type KmsKeyIdCandidate = Pick<ResolvedKmsKey, 'keyId' | 'source'>
+
+type KmsCanPerformArguments =
+  | [
+      operation: Extract<KmsCapabilityOperation, { operation: 'sign' | 'decrypt' }>,
+      key: KmsKeyReference | ResolvedKmsKey,
+    ]
+  | [
+      operation: Extract<KmsCapabilityOperation, { operation: 'verify' | 'encrypt' }>,
+      key?: KmsKeyReference | ResolvedKmsKey,
+    ]
 
 @injectable()
 export class KeyManagementApi {
@@ -73,13 +126,347 @@ export class KeyManagementApi {
    */
   public supportedJwaSignatureAlgorithms(options?: {
     includeSymmetricAlgorithms?: boolean
+    operation?: 'sign' | 'verify'
   }): KnownJwaSignatureAlgorithm[] {
     const includeSymmetricAlgorithms = options?.includeSymmetricAlgorithms ?? false
+    // Preserve signing-only behavior for existing consumers during the consumer migration.
+    const operation = options?.operation ?? 'sign'
 
     return Object.values(KnownJwaSignatureAlgorithms).filter(
       (algorithm) =>
         (includeSymmetricAlgorithms || createKeyTypeForSigningAlgorithm(algorithm).kty !== 'oct') &&
-        this.supportedBackendsForOperation({ operation: 'sign', algorithm }).length > 0
+        this.supportedBackendsForOperation({ operation, algorithm }).length > 0
+    )
+  }
+
+  /**
+   * Resolve a key reference to public metadata without exposing private key material.
+   */
+  public async resolveKey(reference: KmsKeyReference): Promise<ResolvedKmsKey> {
+    const candidates = this.keyIdCandidates(reference)
+
+    for (const candidate of candidates) {
+      let keyMismatch: KeyManagementKeyMismatchError | undefined
+      for (const kms of this.keyManagementConfig.backends) {
+        try {
+          const key = await this.resolveKeyOnBackend(kms, candidate, reference)
+          if (key) {
+            if (candidate.source === 'legacy') {
+              this.agentContext.config.logger.warn(
+                `Resolved key '${candidate.keyId}' using a legacy key id. Migrate the key to an explicit KMS key id.`
+              )
+            }
+            return key
+          }
+        } catch (error) {
+          if (!(error instanceof KeyManagementKeyMismatchError)) throw error
+          keyMismatch ??= error
+        }
+      }
+      if (keyMismatch) throw keyMismatch
+    }
+
+    const keyId = candidates[0]?.keyId ?? 'unknown'
+    throw new KeyManagementKeyNotFoundError(
+      keyId,
+      this.keyManagementConfig.backends.map((backend) => backend.backend)
+    )
+  }
+
+  public async canPerform(...args: KmsCanPerformArguments): Promise<KmsCanPerformResult> {
+    const [operation, key] = args
+    if (!key && (operation.operation === 'sign' || operation.operation === 'decrypt')) {
+      return {
+        supported: false,
+        reason: 'key-not-found',
+        message: `A key is required for the '${operation.operation}' operation`,
+      }
+    }
+
+    if (!key) {
+      const supportedBackends = this.supportedBackendsForOperation(operation)
+      if (this.keyManagementConfig.backends.length > 0) {
+        const defaultBackend = this.keyManagementConfig.defaultBackend
+        if (supportedBackends.includes(defaultBackend.backend)) {
+          return { supported: true, backend: defaultBackend.backend }
+        }
+      }
+
+      const firstCapableBackend = this.keyManagementConfig.backends.find((backend) =>
+        supportedBackends.includes(backend.backend)
+      )
+      if (firstCapableBackend) {
+        return { supported: true, backend: firstCapableBackend.backend }
+      }
+
+      return {
+        supported: false,
+        reason: 'backend-unsupported-request',
+        message: `No key management service backend supports ${getKmsOperationHumanDescription(operation)}`,
+      }
+    }
+
+    if (isResolvedKmsKey(key)) {
+      const kms = this.keyManagementConfig.backends.find((backend) => backend.backend === key.backend)
+      if (!kms?.isOperationSupported(this.agentContext, operation)) {
+        return {
+          supported: false,
+          reason: 'backend-unsupported-request',
+          message: `Backend '${key.backend}' does not support ${getKmsOperationHumanDescription(operation)}`,
+          keyId: key.keyId,
+          backend: key.backend,
+        }
+      }
+
+      return this.checkResolvedKeyCapability(operation, key)
+    }
+
+    const candidates = this.keyIdCandidates(key)
+    let keyMismatch: { error: KeyManagementKeyMismatchError; keyId: string; backend: string } | undefined
+    const resolvedKeys = new Map<
+      KeyManagementService,
+      Map<string, ResolvedKmsKey | null | KeyManagementKeyMismatchError>
+    >()
+    const resolveKeyOnce = async (
+      kms: KeyManagementService,
+      candidate: KmsKeyIdCandidate
+    ): Promise<ResolvedKmsKey | undefined> => {
+      let backendKeys = resolvedKeys.get(kms)
+      if (!backendKeys) {
+        backendKeys = new Map()
+        resolvedKeys.set(kms, backendKeys)
+      }
+
+      if (!backendKeys.has(candidate.keyId)) {
+        try {
+          backendKeys.set(candidate.keyId, (await this.resolveKeyOnBackend(kms, candidate, key)) ?? null)
+        } catch (error) {
+          if (!(error instanceof KeyManagementKeyMismatchError)) throw error
+          backendKeys.set(candidate.keyId, error)
+        }
+      }
+
+      const resolvedKey = backendKeys.get(candidate.keyId)
+      if (resolvedKey instanceof KeyManagementKeyMismatchError) throw resolvedKey
+      return resolvedKey ?? undefined
+    }
+
+    for (const kms of this.keyManagementConfig.backends) {
+      if (!kms.isOperationSupported(this.agentContext, operation)) continue
+
+      for (const candidate of candidates) {
+        let resolvedKey: ResolvedKmsKey | undefined
+        try {
+          resolvedKey = await resolveKeyOnce(kms, candidate)
+        } catch (error) {
+          if (!(error instanceof KeyManagementKeyMismatchError)) throw error
+          keyMismatch ??= { error, keyId: candidate.keyId, backend: kms.backend }
+          continue
+        }
+        if (!resolvedKey) continue
+
+        if (candidate.source === 'legacy') {
+          this.agentContext.config.logger.warn(
+            `Resolved key '${candidate.keyId}' using a legacy key id. Migrate the key to an explicit KMS key id.`
+          )
+        }
+        return this.checkResolvedKeyCapability(operation, resolvedKey)
+      }
+    }
+
+    for (const candidate of candidates) {
+      for (const kms of this.keyManagementConfig.backends) {
+        try {
+          const resolvedKey = await resolveKeyOnce(kms, candidate)
+          if (resolvedKey) {
+            return {
+              supported: false,
+              reason: 'backend-unsupported-request',
+              message: `The key exists in backend '${kms.backend}', but it does not support ${getKmsOperationHumanDescription(operation)}`,
+              keyId: candidate.keyId,
+              backend: kms.backend,
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof KeyManagementKeyMismatchError)) throw error
+          keyMismatch ??= { error, keyId: candidate.keyId, backend: kms.backend }
+        }
+      }
+    }
+
+    if (keyMismatch) {
+      return {
+        supported: false,
+        reason: 'key-mismatch',
+        message: keyMismatch.error.message,
+        keyId: keyMismatch.keyId,
+        backend: keyMismatch.backend,
+      }
+    }
+
+    const keyId = candidates[0]?.keyId ?? 'unknown'
+    return {
+      supported: false,
+      reason: 'key-not-found',
+      message: `Key with key id '${keyId}' was not found in any configured backend`,
+      keyId,
+    }
+  }
+
+  private keyIdCandidates(reference: KmsKeyReference): KmsKeyIdCandidate[] {
+    if ('keyId' in reference) return [{ keyId: reference.keyId, source: 'explicit' }]
+
+    const candidates: KmsKeyIdCandidate[] = []
+    if (reference.kmsKeyId) candidates.push({ keyId: reference.kmsKeyId, source: 'kmsKeyId' })
+
+    const allowLegacyKeyId = reference.allowLegacyKeyId ?? true
+    if (allowLegacyKeyId && reference.publicJwk.kty !== 'RSA') {
+      const legacyKeyId = reference.publicJwk.legacyKeyId
+      if (!candidates.some((candidate) => candidate.keyId === legacyKeyId)) {
+        candidates.push({ keyId: legacyKeyId, source: 'legacy' })
+      }
+    }
+
+    return candidates
+  }
+
+  private async resolveKeyOnBackend(
+    kms: KeyManagementService,
+    candidate: KmsKeyIdCandidate,
+    reference: KmsKeyReference
+  ): Promise<ResolvedKmsKey | undefined> {
+    const jwk = await kms.getPublicKey(this.agentContext, candidate.keyId)
+    if (!jwk) return undefined
+
+    const referencePublicJwk = 'publicJwk' in reference ? reference.publicJwk.toJson() : undefined
+    if (referencePublicJwk) {
+      if (jwk.kty === 'oct' || !asymmetricPublicJwkMatches(jwk, referencePublicJwk)) {
+        throw new KeyManagementKeyMismatchError(candidate.keyId)
+      }
+    }
+
+    return {
+      keyId: candidate.keyId,
+      backend: kms.backend,
+      jwk,
+      publicJwk: jwk.kty === 'oct' ? undefined : PublicJwk.fromPublicJwk(jwk),
+      source: candidate.source,
+    }
+  }
+
+  private checkResolvedKeyCapability(operation: KmsCapabilityOperation, key: ResolvedKmsKey): KmsCanPerformResult {
+    const { jwk } = key
+    let allowedUsage: boolean
+    if ((operation.operation === 'encrypt' || operation.operation === 'decrypt') && operation.keyAgreement) {
+      allowedUsage = keyAllowsDerive(jwk)
+    } else if (operation.operation === 'sign') {
+      allowedUsage = keyAllowsSign(jwk)
+    } else if (operation.operation === 'verify') {
+      allowedUsage = keyAllowsVerify(jwk)
+    } else if (operation.operation === 'encrypt') {
+      allowedUsage = keyAllowsEncrypt(jwk)
+    } else {
+      allowedUsage = keyAllowsDecrypt(jwk)
+    }
+
+    if (!allowedUsage) {
+      return {
+        supported: false,
+        reason: 'disallowed-key-usage',
+        message: `Key '${key.keyId}' usage does not allow the '${operation.operation}' operation`,
+        keyId: key.keyId,
+        backend: key.backend,
+      }
+    }
+
+    if (operation.operation === 'sign' || operation.operation === 'verify') {
+      let supportedAlgorithms: boolean
+      if (jwk.kty === 'oct') {
+        supportedAlgorithms = operation.algorithm.startsWith('HS') && (!jwk.alg || jwk.alg === operation.algorithm)
+      } else {
+        supportedAlgorithms =
+          supportedSigningAlgsForKey(jwk).includes(operation.algorithm) && (!jwk.alg || jwk.alg === operation.algorithm)
+      }
+      if (!supportedAlgorithms) {
+        return {
+          supported: false,
+          reason: 'incompatible-key-algorithm',
+          message: `Key '${key.keyId}' is not compatible with signature algorithm '${operation.algorithm}'`,
+          keyId: key.keyId,
+          backend: key.backend,
+        }
+      }
+    }
+
+    if (operation.operation === 'encrypt' || operation.operation === 'decrypt') {
+      if (operation.keyAgreement) {
+        const jwkSupportsAgreement =
+          jwk.kty !== 'oct' && supportedKeyDerivationAlgsForKey(jwk).includes(operation.keyAgreement.algorithm)
+        if (!jwkSupportsAgreement || (jwk.alg && jwk.alg !== operation.keyAgreement.algorithm)) {
+          return {
+            supported: false,
+            reason: 'incompatible-key-algorithm',
+            message: `Key '${key.keyId}' is not compatible with key agreement algorithm '${operation.keyAgreement.algorithm}'`,
+            keyId: key.keyId,
+            backend: key.backend,
+          }
+        }
+      } else {
+        let algorithm: string
+        if (operation.operation === 'encrypt') {
+          algorithm = operation.encryption.algorithm
+        } else {
+          algorithm = operation.decryption.algorithm
+        }
+        if (jwk.kty !== 'oct') {
+          return {
+            supported: false,
+            reason: 'incompatible-key-type',
+            message: `Key '${key.keyId}' must be symmetric for direct ${operation.operation}`,
+            keyId: key.keyId,
+            backend: key.backend,
+          }
+        }
+        if (jwk.alg && jwk.alg !== algorithm) {
+          return {
+            supported: false,
+            reason: 'incompatible-key-algorithm',
+            message: `Key '${key.keyId}' is not compatible with encryption algorithm '${algorithm}'`,
+            keyId: key.keyId,
+            backend: key.backend,
+          }
+        }
+      }
+    }
+
+    return { supported: true, backend: key.backend, key }
+  }
+
+  /**
+   * Select the first candidate signing algorithm supported by the backend holding the key.
+   */
+  public async selectSignatureAlgorithm(options: {
+    key: KmsKeyReference | ResolvedKmsKey
+    candidates?: KnownJwaSignatureAlgorithm[]
+  }): Promise<{ algorithm: KnownJwaSignatureAlgorithm; key: ResolvedKmsKey; backend: string }> {
+    const key = isResolvedKmsKey(options.key) ? options.key : await this.resolveKey(options.key)
+    const compatibleAlgorithms =
+      key.jwk.kty === 'oct'
+        ? (Object.values(KnownJwaSignatureAlgorithms).filter((algorithm) =>
+            algorithm.startsWith('HS')
+          ) as KnownJwaSignatureAlgorithm[])
+        : supportedSigningAlgsForKey(key.jwk)
+    const candidates = options.candidates ?? compatibleAlgorithms
+
+    for (const algorithm of candidates) {
+      if (!compatibleAlgorithms.includes(algorithm) || (key.jwk.alg && key.jwk.alg !== algorithm)) continue
+
+      const result = await this.canPerform({ operation: 'sign', algorithm }, key)
+      if (result.supported) return { algorithm, key, backend: result.backend }
+    }
+
+    throw new KeyManagementError(
+      `No candidate signing algorithm is supported by backend '${key.backend}' for ${getJwkHumanDescription(key.jwk)}`
     )
   }
 
@@ -395,6 +782,10 @@ export class KeyManagementApi {
         : 'No key management service backend found.'
     )
   }
+}
+
+function isResolvedKmsKey(key: KmsKeyReference | ResolvedKmsKey): key is ResolvedKmsKey {
+  return 'backend' in key && 'jwk' in key && 'source' in key
 }
 
 function routingKeyId(key: KmsEncryptOptions['key'] | KmsDecryptOptions['key']): string | undefined {

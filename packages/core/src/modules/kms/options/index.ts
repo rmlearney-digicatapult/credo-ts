@@ -51,6 +51,7 @@ export type {
 export { isKmsKeyAgreementEncryptHpke } from './KmsKeyAgreementEncryptOptions'
 export {
   getKmsOperationHumanDescription,
+  type KmsCapabilityOperation,
   type KmsOperation,
   type KmsOperationCreateKey,
   type KmsOperationDecrypt,
