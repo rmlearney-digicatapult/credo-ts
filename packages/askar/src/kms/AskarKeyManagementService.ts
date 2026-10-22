@@ -336,6 +336,9 @@ export class AskarKeyManagementService implements Kms.KeyManagementService {
             ? { verified: true, publicJwk }
             : { verified: false }
         }
+      } catch (error) {
+        if (error instanceof Kms.KeyManagementError) throw error
+        throw new Kms.KeyManagementError('Error verifying with key', { cause: error })
       } finally {
         askarKey?.handle.free()
       }

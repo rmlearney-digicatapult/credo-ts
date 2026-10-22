@@ -426,6 +426,20 @@ describe('AskarKeyManagementService', () => {
       ).resolves.toEqual({ verified: false })
     })
 
+    it('wraps malformed ES512 signatures in a key management error', async () => {
+      const publicKey = p521.getPublicKey(p521.utils.randomSecretKey())
+      const publicJwk = Kms.PublicJwk.fromPublicKey({ kty: 'EC', crv: 'P-521', publicKey }).toJson()
+
+      await expect(
+        service.verify(agentContext, {
+          key: { publicJwk },
+          algorithm: 'ES512',
+          data: new Uint8Array([1, 2, 3]),
+          signature: new Uint8Array([1, 2, 3]),
+        })
+      ).rejects.toThrow(new Kms.KeyManagementError('Error verifying with key'))
+    })
+
     it('throws error if key is not found', async () => {
       await expect(
         service.verify(agentContext, {
