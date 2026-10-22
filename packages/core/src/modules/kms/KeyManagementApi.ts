@@ -64,6 +64,10 @@ export interface ResolvedKmsKey {
   readonly source: 'explicit' | 'kmsKeyId' | 'legacy'
 }
 
+export interface KmsSigningSelection extends ResolvedKmsKey {
+  readonly algorithm: KnownJwaSignatureAlgorithm
+}
+
 export type KmsCanPerformResult =
   | { supported: true; backend: string; key?: ResolvedKmsKey }
   | {
@@ -448,7 +452,7 @@ export class KeyManagementApi {
   public async selectSignatureAlgorithm(options: {
     key: KmsKeyReference | ResolvedKmsKey
     candidates?: KnownJwaSignatureAlgorithm[]
-  }): Promise<{ algorithm: KnownJwaSignatureAlgorithm; key: ResolvedKmsKey; backend: string }> {
+  }): Promise<KmsSigningSelection> {
     const key = isResolvedKmsKey(options.key) ? options.key : await this.resolveKey(options.key)
     const compatibleAlgorithms =
       key.jwk.kty === 'oct'
@@ -462,7 +466,7 @@ export class KeyManagementApi {
       if (!compatibleAlgorithms.includes(algorithm) || (key.jwk.alg && key.jwk.alg !== algorithm)) continue
 
       const result = await this.canPerform({ operation: 'sign', algorithm }, key)
-      if (result.supported) return { algorithm, key, backend: result.backend }
+      if (result.supported) return { ...key, algorithm }
     }
 
     throw new KeyManagementError(

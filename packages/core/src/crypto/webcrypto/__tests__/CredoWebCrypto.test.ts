@@ -61,6 +61,33 @@ describe('CredoWebCrypto', () => {
         expect(signature).toBeTruthy()
       })
     })
+
+    it('selects the signing backend for the key before signing', async () => {
+      const algorithm = { name: 'ECDSA', hash: 'SHA-256' } as const satisfies KeySignParams
+      const message = new Uint8Array(10).fill(10)
+      const key = await webCrypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+      const kms = agentContext.resolve(KeyManagementApi)
+      const selectSignatureAlgorithm = vi.spyOn(kms, 'selectSignatureAlgorithm')
+      const sign = vi.spyOn(kms, 'sign')
+
+      await expect(walletWebCrypto.sign(key.privateKey, message, algorithm)).resolves.toBeInstanceOf(Uint8Array)
+
+      expect(selectSignatureAlgorithm).toHaveBeenCalledWith({
+        key: {
+          publicJwk: key.privateKey.publicJwk,
+          kmsKeyId: key.privateKey.publicJwk.keyId,
+          allowLegacyKeyId: false,
+        },
+        candidates: ['ES256'],
+      })
+      const signingSelection = await selectSignatureAlgorithm.mock.results[0].value
+      expect(sign).toHaveBeenCalledWith({
+        keyId: signingSelection.keyId,
+        data: message,
+        algorithm: signingSelection.algorithm,
+        backend: signingSelection.backend,
+      })
+    })
   })
 
   describe('signature verification', () => {
