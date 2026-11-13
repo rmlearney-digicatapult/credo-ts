@@ -12,6 +12,6 @@ auto-response comparisons, allowing percent-encoded and unencoded identifiers to
 when supported by the registry.
 
 AnonCreds revocation-notification processing now lives in `@credo-ts/anoncreds/didcomm`.
-Register `AnonCredsDidCommModule` alongside the AnonCreds and DIDComm modules to process these
+Register `AnonCredsDidCommRevocationNotificationModule` alongside the AnonCreds and DIDComm modules to process these
 notifications. DIDComm dispatches through a protocol-neutral processor interface and rejects
 incoming notifications when no processor is registered.

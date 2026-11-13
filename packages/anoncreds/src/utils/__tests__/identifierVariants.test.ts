@@ -2,7 +2,7 @@ import { DidCommRevocationNotificationProcessorToken } from '@credo-ts/didcomm'
 import { getAgentContext } from '../../../../core/tests/helpers'
 import { NativeAnoncreds } from '../../../tests/helpers'
 import { AnonCredsModuleConfig } from '../../AnonCredsModuleConfig'
-import { AnonCredsDidCommModule } from '../../didcomm/AnonCredsDidCommModule'
+import { AnonCredsDidCommRevocationNotificationModule } from '../../didcomm/AnonCredsDidCommRevocationNotificationModule'
 import type { AnonCredsProofRequest } from '../../models'
 import type { AnonCredsRegistry } from '../../services'
 import { areAnonCredsProofRequestsEqual } from '../areRequestsEqual'
@@ -117,7 +117,7 @@ describe('identifier variants', () => {
 
   test('registers a notification processor through the DIDComm integration module', () => {
     const agentContext = getContext()
-    new AnonCredsDidCommModule().register(agentContext.dependencyManager)
+    new AnonCredsDidCommRevocationNotificationModule().register(agentContext.dependencyManager)
 
     expect(agentContext.dependencyManager.isRegistered(DidCommRevocationNotificationProcessorToken, true)).toBe(true)
   })
