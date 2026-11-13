@@ -270,6 +270,13 @@ describe('AnonCreds API', () => {
       },
     })
 
+    const [credentialDefinitionBySchemaId] = await agent.modules.anoncreds.getCreatedCredentialDefinitions({
+      schemaId: 'did:indy:pool:localhost:7Cd2Yj9yEZNcmNoH54tq9i/anoncreds/v0/SCHEMA/Test%20Schema/1.0.0',
+    })
+    expect(credentialDefinitionBySchemaId.credentialDefinitionId).toBe(
+      credentialDefinitionRecord.credentialDefinitionId
+    )
+
     expect(credentialDefinitionRecord.getTags()).toEqual({
       methodName: 'inMemory',
       credentialDefinitionId: 'did:indy:pool:localhost:VsKV7grR1BUE29mG2Fm2kX/anoncreds/v0/CLAIM_DEF/10065/TAG',

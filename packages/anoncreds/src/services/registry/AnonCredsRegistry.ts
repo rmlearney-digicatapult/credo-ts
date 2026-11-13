@@ -44,6 +44,13 @@ export interface AnonCredsRegistry {
    */
   readonly allowsLocalRecord?: boolean
 
+  /**
+   * Returns equivalent forms of an identifier, with the canonical form first.
+   *
+   * @default the identifier itself
+   */
+  getIdentifierVariants?(identifier: string): string[]
+
   getSchema(agentContext: AgentContext, schemaId: string): Promise<GetSchemaReturn>
   registerSchema(agentContext: AgentContext, options: RegisterSchemaOptions): Promise<RegisterSchemaReturn>
 

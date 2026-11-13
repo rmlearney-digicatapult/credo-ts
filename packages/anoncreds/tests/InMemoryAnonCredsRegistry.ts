@@ -45,6 +45,11 @@ export class InMemoryAnonCredsRegistry implements AnonCredsRegistry {
   public readonly allowsCaching = true
   public readonly allowsLocalRecord = true
 
+  public getIdentifierVariants(identifier: string) {
+    const unencodedIdentifier = identifier.replaceAll('%20', ' ')
+    return [unencodedIdentifier, unencodedIdentifier.replaceAll(' ', '%20')]
+  }
+
   private schemas: Record<string, AnonCredsSchema>
   private credentialDefinitions: Record<string, AnonCredsCredentialDefinition>
   private revocationRegistryDefinitions: Record<string, AnonCredsRevocationRegistryDefinition>
