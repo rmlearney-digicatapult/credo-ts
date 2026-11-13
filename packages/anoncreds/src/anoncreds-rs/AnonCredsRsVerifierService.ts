@@ -11,13 +11,19 @@ import type { CredentialWithRevocationMetadata } from '../models/utils'
 import type { AnonCredsVerifierService, VerifyProofOptions, VerifyW3cPresentationOptions } from '../services'
 
 import { fetchRevocationStatusList } from '../utils'
+import {
+  areIdentifiersEqual,
+  withIdentifierVariantKeys,
+  withProofRequestRestrictionVariants,
+} from '../utils/identifierVariants'
 
 import { getRevocationMetadata, getW3cAnonCredsCredentialProofDetails } from './utils'
 
 @injectable()
 export class AnonCredsRsVerifierService implements AnonCredsVerifierService {
   public async verifyProof(agentContext: AgentContext, options: VerifyProofOptions): Promise<boolean> {
-    const { credentialDefinitions, proof, proofRequest, revocationRegistries, schemas } = options
+    const { credentialDefinitions, proof, revocationRegistries, schemas } = options
+    const proofRequest = withProofRequestRestrictionVariants(agentContext, options.proofRequest)
 
     let presentation: Presentation | undefined
     try {
@@ -56,9 +62,9 @@ export class AnonCredsRsVerifierService implements AnonCredsVerifierService {
 
       return presentation.verify({
         presentationRequest: proofRequest as unknown as JsonObject,
-        credentialDefinitions: rsCredentialDefinitions,
-        schemas: rsSchemas,
-        revocationRegistryDefinitions,
+        credentialDefinitions: withIdentifierVariantKeys(agentContext, rsCredentialDefinitions),
+        schemas: withIdentifierVariantKeys(agentContext, rsSchemas),
+        revocationRegistryDefinitions: withIdentifierVariantKeys(agentContext, revocationRegistryDefinitions),
         revocationStatusLists: lists,
         nonRevokedIntervalOverrides,
       })
@@ -107,9 +113,15 @@ export class AnonCredsRsVerifierService implements AnonCredsVerifierService {
       }
       const relatedNonRevokedRestrictionItem = requestedNonRevokedRestrictions.find(
         (item) =>
-          item.revocationRegistryDefinitionId === identifier.rev_reg_id ||
-          item.credentialDefinitionId === identifier.cred_def_id ||
-          item.schemaId === identifier.schema_id
+          (item.revocationRegistryDefinitionId !== undefined &&
+            identifier.rev_reg_id !== undefined &&
+            areIdentifiersEqual(agentContext, item.revocationRegistryDefinitionId, identifier.rev_reg_id)) ||
+          (item.credentialDefinitionId !== undefined &&
+            identifier.cred_def_id !== undefined &&
+            areIdentifiersEqual(agentContext, item.credentialDefinitionId, identifier.cred_def_id)) ||
+          (item.schemaId !== undefined &&
+            identifier.schema_id !== undefined &&
+            areIdentifiersEqual(agentContext, item.schemaId, identifier.schema_id))
       )
 
       const requestedFrom = relatedNonRevokedRestrictionItem?.nonRevokedInterval.from
@@ -181,10 +193,16 @@ export class AnonCredsRsVerifierService implements AnonCredsVerifierService {
     }
 
     const verificationOptions: VerifyAnonCredsW3cPresentationOptions = {
-      presentationRequest: options.proofRequest as unknown as JsonObject,
-      schemas: options.schemas as unknown as Record<string, JsonObject>,
-      credentialDefinitions: options.credentialDefinitions as unknown as Record<string, JsonObject>,
-      revocationRegistryDefinitions,
+      presentationRequest: withProofRequestRestrictionVariants(
+        agentContext,
+        options.proofRequest
+      ) as unknown as JsonObject,
+      schemas: withIdentifierVariantKeys(agentContext, options.schemas as unknown as Record<string, JsonObject>),
+      credentialDefinitions: withIdentifierVariantKeys(
+        agentContext,
+        options.credentialDefinitions as unknown as Record<string, JsonObject>
+      ),
+      revocationRegistryDefinitions: withIdentifierVariantKeys(agentContext, revocationRegistryDefinitions),
       revocationStatusLists: revocationMetadata.map((rm) => rm.revocationStatusList),
       nonRevokedIntervalOverrides: revocationMetadata
         .filter((rm) => rm.nonRevokedIntervalOverride)
