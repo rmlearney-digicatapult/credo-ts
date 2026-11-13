@@ -135,13 +135,14 @@ function areRestrictionsEqual(
   // Having an undefined restrictions property or an empty array is the same
   if (restrictionsA === undefined) return restrictionsB === undefined || restrictionsB.length === 0
   if (restrictionsB === undefined) return restrictionsA.length === 0
+  if (restrictionsA.length !== restrictionsB.length) return false
 
   // Clone array to not modify input object
   const bList = [...restrictionsB]
 
   // Check if all restrictions in A are also in B
   return restrictionsA.every((a) => {
-    const bIndex = restrictionsB.findIndex((b) => areObjectsEqual(a, b))
+    const bIndex = bList.findIndex((b) => areObjectsEqual(a, b))
 
     // Match found
     if (bIndex !== -1) {

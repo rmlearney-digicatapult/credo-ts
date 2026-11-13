@@ -218,6 +218,18 @@ describe('util | areAnonCredsProofRequestsEqual', () => {
         requested_attributes: {
           a: {
             ...proofRequest.requested_attributes.a,
+            restrictions: [{ cred_def_id: 'cred_def_id1' }],
+          },
+        },
+      })
+    ).toBe(false)
+
+    expect(
+      areAnonCredsProofRequestsEqual(proofRequest, {
+        ...proofRequest,
+        requested_attributes: {
+          a: {
+            ...proofRequest.requested_attributes.a,
             restrictions: [
               {
                 cred_def_id: 'cred_def_id1',
