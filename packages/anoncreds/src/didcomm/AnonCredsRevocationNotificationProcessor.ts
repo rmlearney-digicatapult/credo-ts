@@ -14,6 +14,7 @@ import {
   DidCommRevocationNotification,
   DidCommRevocationNotificationV2Message,
 } from '@credo-ts/didcomm'
+import { identifierQuery } from '../utils/identifierVariants'
 import {
   v1ThreadRegex,
   v2AnonCredsRevocationFormat,
@@ -47,7 +48,11 @@ export class AnonCredsRevocationNotificationProcessor implements DidCommRevocati
   ) {
     const query: Query<DidCommCredentialExchangeRecord> = {
       $and: [
-        { anonCredsRevocationRegistryId: revocationRegistryId },
+        identifierQuery<DidCommCredentialExchangeRecord>(
+          agentContext,
+          'anonCredsRevocationRegistryId',
+          revocationRegistryId
+        ),
         { anonCredsCredentialRevocationId: credentialRevocationId, connectionId: connection.id },
       ],
     }

@@ -1,6 +1,5 @@
 ---
 "@credo-ts/anoncreds": minor
-"@credo-ts/didcomm": minor
 ---
 
 Support equivalent AnonCreds identifier forms across resolution, proofs, and DIDComm revocation lookups.
@@ -11,7 +10,5 @@ used for stored-record and credential queries, proof restrictions and verificati
 auto-response comparisons, allowing percent-encoded and unencoded identifiers to interoperate
 when supported by the registry.
 
-AnonCreds revocation-notification processing now lives in `@credo-ts/anoncreds/didcomm`.
-Register `AnonCredsDidCommRevocationNotificationModule` alongside the AnonCreds and DIDComm modules to process these
-notifications. DIDComm dispatches through a protocol-neutral processor interface and rejects
-incoming notifications when no processor is registered.
+The AnonCreds DIDComm revocation-notification processor also uses registry-provided variants
+when matching notifications to credential exchange records.

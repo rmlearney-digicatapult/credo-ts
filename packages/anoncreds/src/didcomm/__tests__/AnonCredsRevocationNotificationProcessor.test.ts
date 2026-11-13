@@ -16,6 +16,9 @@ import {
 import { Subject } from 'rxjs'
 import { InMemoryStorageService } from '../../../../../tests/InMemoryStorageService'
 import { getAgentConfig, getAgentContext, getMockConnection } from '../../../../core/tests/helpers'
+import { NativeAnoncreds } from '../../../tests/helpers'
+import { InMemoryAnonCredsRegistry } from '../../../tests/InMemoryAnonCredsRegistry'
+import { AnonCredsModuleConfig } from '../../AnonCredsModuleConfig'
 import { AnonCredsRevocationNotificationProcessor } from '../AnonCredsRevocationNotificationProcessor'
 
 const connection = getMockConnection({ state: DidCommDidExchangeState.Completed })
@@ -37,6 +40,13 @@ describe('AnonCredsRevocationNotificationProcessor', () => {
             cache: new InMemoryLruCache({ limit: 500 }),
           }),
         ],
+        [
+          AnonCredsModuleConfig,
+          new AnonCredsModuleConfig({
+            registries: [new InMemoryAnonCredsRegistry()],
+            anoncreds: NativeAnoncreds,
+          }),
+        ],
       ],
     })
 
@@ -46,14 +56,15 @@ describe('AnonCredsRevocationNotificationProcessor', () => {
     processor = new AnonCredsRevocationNotificationProcessor(credentialRepository, eventEmitter, agentConfig.logger)
   })
 
-  test('processes an AnonCreds V2 notification for a matching credential record', async () => {
+  test('matches an encoded Indy registry id to an unencoded credential record', async () => {
     const eventListener = vi.fn()
     eventEmitter.on<DidCommRevocationNotificationReceivedEvent>(
       DidCommCredentialEventTypes.DidCommRevocationNotificationReceived,
       eventListener
     )
 
-    const revocationRegistryId = 'did:indy:pool:localtest:TL1EaPFCZ8Si5aUrqScBDt/anoncreds/v0/REV_REG_DEF/1/My Registry'
+    const unencodedRegistryId = 'did:indy:pool:localtest:TL1EaPFCZ8Si5aUrqScBDt/anoncreds/v0/REV_REG_DEF/1/My Registry'
+    const encodedRegistryId = unencodedRegistryId.replace('My Registry', 'My%20Registry')
     const credentialRevocationId = '1'
     const credentialRecord = new DidCommCredentialExchangeRecord({
       threadId: 'thread-id',
@@ -62,14 +73,14 @@ describe('AnonCredsRevocationNotificationProcessor', () => {
       role: DidCommCredentialRole.Holder,
     })
     credentialRecord.connectionId = connection.id
-    credentialRecord.setTag('anonCredsRevocationRegistryId', revocationRegistryId)
+    credentialRecord.setTag('anonCredsRevocationRegistryId', unencodedRegistryId)
     credentialRecord.setTag('anonCredsCredentialRevocationId', credentialRevocationId)
     const credentialRepository = agentContext.dependencyManager.resolve(DidCommCredentialExchangeRepository)
     await credentialRepository.save(agentContext, credentialRecord)
 
     const messageContext = new DidCommInboundMessageContext(
       new DidCommRevocationNotificationV2Message({
-        credentialId: `${revocationRegistryId}::${credentialRevocationId}`,
+        credentialId: `${encodedRegistryId}::${credentialRevocationId}`,
         revocationFormat: 'anoncreds',
         comment: 'Credential has been revoked',
       }),

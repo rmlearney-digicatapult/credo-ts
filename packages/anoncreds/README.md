@@ -71,7 +71,7 @@ The auto-accept helpers `composeCredentialAutoAccept` and `composeProofAutoAccep
 
 To process AnonCreds DIDComm revocation notifications, include `AnonCredsDidCommRevocationNotificationModule`
 alongside `AnonCredsModule` and the DIDComm module. This module owns AnonCreds-specific notification
-parsing and record matching:
+parsing and record matching, including identifier-variant matching:
 
 ```ts
 import { AnonCredsModule } from '@credo-ts/anoncreds'
