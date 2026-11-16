@@ -28,7 +28,11 @@ export class CredoWalletWebCrypto {
   public generateRandomValues<T extends ArrayBufferView | null>(array: T): T {
     if (!array) return array
 
-    return this.kms.randomBytes({ length: array.byteLength }) as unknown as T
+    // Web Crypto fills the passed array in place, callers may ignore the return value.
+    new Uint8Array(array.buffer, array.byteOffset, array.byteLength).set(
+      this.kms.randomBytes({ length: array.byteLength })
+    )
+    return array
   }
 
   public async sign(key: CredoWebCryptoKey, message: Uint8Array, algorithm: KeySignParams): Promise<Uint8Array> {
@@ -85,6 +89,18 @@ export class CredoWalletWebCrypto {
         }
 
         return p384.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
+          prehash: false,
+          lowS: false,
+        })
+      }
+      if (publicKey.kty === 'EC' && publicKey.crv === 'P-521' && hashAlg !== 'SHA-512') {
+        if (hashAlg !== 'SHA-256' && hashAlg !== 'SHA-384') {
+          throw new CredoWebCryptoError(
+            `Hash Alg: ${hashAlg} is not supported with key type ${publicKey.crv} currently`
+          )
+        }
+
+        return p521.verify(signature, Hasher.hash(message, hashAlg.toLowerCase()), publicKey.publicKey, {
           prehash: false,
           lowS: false,
         })

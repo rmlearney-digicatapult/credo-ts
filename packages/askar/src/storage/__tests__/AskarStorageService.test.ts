@@ -1,6 +1,12 @@
 import type { AgentContext, TagsBase } from '@credo-ts/core'
 
-import { RecordDuplicateError, RecordNotFoundError, TypedArrayEncoder } from '@credo-ts/core'
+import {
+  GenericRecord,
+  RecordDecodingError,
+  RecordDuplicateError,
+  RecordNotFoundError,
+  TypedArrayEncoder,
+} from '@credo-ts/core'
 import { NativeAskar } from '@openwallet-foundation/askar-nodejs'
 
 import { TestRecord } from '../../../../core/src/storage/__tests__/TestRecord'
@@ -327,6 +333,53 @@ describe('AskarStorageService', () => {
     })
   })
 
+  describe('decoding errors', () => {
+    let genericStorageService: AskarStorageService<GenericRecord>
+
+    beforeEach(async () => {
+      genericStorageService = new AskarStorageService<GenericRecord>(storeManager)
+
+      await storeManager.withSession(agentContext, (session) =>
+        session.insert({
+          category: GenericRecord.type,
+          name: 'invalid-id',
+          value: JSON.stringify({ content: 'not-an-object' }),
+          tags: { myTag: 'foobar' },
+        })
+      )
+    })
+
+    const expectDecodingError = async (promise: Promise<unknown>) => {
+      const error = await promise.catch((error) => error)
+      expect(error).toBeInstanceOf(RecordDecodingError)
+      expect(error).toMatchObject({ recordType: 'GenericRecord', recordId: 'invalid-id' })
+    }
+
+    it('save() should not store a record that fails to encode', async () => {
+      const record = new GenericRecord({
+        id: 'invalid-save',
+        content: 'not-an-object' as unknown as Record<string, unknown>,
+      })
+
+      await expect(genericStorageService.save(agentContext, record)).rejects.toThrow()
+      await expect(genericStorageService.getById(agentContext, GenericRecord, 'invalid-save')).rejects.toThrow(
+        RecordNotFoundError
+      )
+    })
+
+    it('getById() should throw RecordDecodingError for a record that fails to decode', async () => {
+      await expectDecodingError(genericStorageService.getById(agentContext, GenericRecord, 'invalid-id'))
+    })
+
+    it('getAll() should throw RecordDecodingError for a record that fails to decode', async () => {
+      await expectDecodingError(genericStorageService.getAll(agentContext, GenericRecord))
+    })
+
+    it('findByQuery() should throw RecordDecodingError for a record that fails to decode', async () => {
+      await expectDecodingError(genericStorageService.findByQuery(agentContext, GenericRecord, { myTag: 'foobar' }))
+    })
+  })
+
   describe('findByQuery()', () => {
     it('should retrieve all records that match the query', async () => {
       const expectedRecord = await insertRecord({ tags: { myTag: 'foobar' } })
@@ -490,6 +543,42 @@ describe('AskarStorageService', () => {
 
       expect(records.length).toBe(2)
       expect(records).toEqual(expect.arrayContaining([expectedRecord1, expectedRecord2]))
+    })
+
+    it('should return paginated records in insertion order, without skipping or repeating records', async () => {
+      // Ids sort in the reverse of insertion order, so only an order by insertion passes this test
+      const ids = ['e', 'd', 'c', 'b', 'a']
+      for (const id of ids) {
+        await insertRecord({ id, tags: { myTag: 'foobar' } })
+      }
+      await insertRecord({ id: 'f', tags: { myTag: 'notfoobar' } })
+
+      const pagedIds: string[] = []
+      for (let offset = 0; offset < ids.length; offset += 2) {
+        const page = await storageService.findByQuery(
+          agentContext,
+          TestRecord,
+          { myTag: 'foobar' },
+          { offset, limit: 2 }
+        )
+        pagedIds.push(...page.map((record) => record.id))
+      }
+
+      expect(pagedIds).toEqual(ids)
+    })
+
+    it('should not repeat records across pages when a record is added between page reads', async () => {
+      await insertRecord({ id: 'b' })
+      await insertRecord({ id: 'c' })
+      await insertRecord({ id: 'd' })
+      await insertRecord({ id: 'e' })
+
+      const firstPage = await storageService.findByQuery(agentContext, TestRecord, {}, { offset: 0, limit: 2 })
+      await insertRecord({ id: 'a' })
+      const secondPage = await storageService.findByQuery(agentContext, TestRecord, {}, { offset: 2, limit: 2 })
+
+      expect(firstPage.map((record) => record.id)).toEqual(['b', 'c'])
+      expect(secondPage.map((record) => record.id)).toEqual(['d', 'e'])
     })
   })
 })

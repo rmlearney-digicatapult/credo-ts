@@ -3,9 +3,9 @@ import { AgentContext } from '../../agent'
 import type { HashName } from '../../crypto'
 import { CredoError } from '../../error'
 import { TypedArrayEncoder } from '../../utils'
-import { DidResolverService, DidsApi, getPublicJwkFromVerificationMethod, parseDid } from '../dids'
+import { type DidPurpose, DidResolverService, DidsApi, getPublicJwkFromVerificationMethod, parseDid } from '../dids'
 import { isKnownJwaSignatureAlgorithm, type Jwk, KeyManagementApi, PublicJwk } from '../kms'
-import { X509Certificate } from '../x509/X509Certificate'
+import type { EncodedX509Certificate } from '../x509/X509ServiceOptions'
 import { SdJwtVcError } from './SdJwtVcError'
 import type { SdJwtVcHolderBinding, SdJwtVcIssuer } from './SdJwtVcOptions'
 
@@ -16,12 +16,16 @@ export async function resolveSigningPublicJwkFromDidUrl(agentContext: AgentConte
   return publicJwk
 }
 
-export async function resolveDidUrl(agentContext: AgentContext, didUrl: string) {
+export async function resolveDidUrl(
+  agentContext: AgentContext,
+  didUrl: string,
+  purposes: DidPurpose[] = ['assertionMethod']
+) {
   const didResolver = agentContext.dependencyManager.resolve(DidResolverService)
   const didDocument = await didResolver.resolveDidDocument(agentContext, didUrl)
 
   return {
-    verificationMethod: didDocument.dereferenceKey(didUrl, ['assertionMethod']),
+    verificationMethod: didDocument.dereferenceKey(didUrl, purposes),
     didDocument,
   }
 }
@@ -29,7 +33,11 @@ export async function resolveDidUrl(agentContext: AgentContext, didUrl: string) 
 export async function extractKeyFromHolderBinding(
   agentContext: AgentContext,
   holder: SdJwtVcHolderBinding,
-  { forSigning = false, jwkKeyId }: { forSigning?: boolean; jwkKeyId?: string } = {}
+  {
+    forSigning = false,
+    jwkKeyId,
+    didPurposes,
+  }: { forSigning?: boolean; jwkKeyId?: string; didPurposes?: DidPurpose[] } = {}
 ) {
   if (holder.method === 'did') {
     const parsedDid = parseDid(holder.didUrl)
@@ -38,11 +46,13 @@ export async function extractKeyFromHolderBinding(
     }
 
     let publicJwk: PublicJwk
+    let did: string | undefined
     if (forSigning) {
       publicJwk = await resolveSigningPublicJwkFromDidUrl(agentContext, holder.didUrl)
     } else {
-      const { verificationMethod } = await resolveDidUrl(agentContext, holder.didUrl)
+      const { verificationMethod, didDocument } = await resolveDidUrl(agentContext, holder.didUrl, didPurposes)
       publicJwk = getPublicJwkFromVerificationMethod(verificationMethod)
+      did = didDocument.id
     }
 
     const supportedSignatureAlgorithms = publicJwk.supportedSignatureAlgorithms
@@ -54,6 +64,7 @@ export async function extractKeyFromHolderBinding(
     return {
       alg,
       publicJwk,
+      did,
       cnf: {
         // We need to include the whole didUrl here, otherwise the verifier
         // won't know which did it is associated with
@@ -193,7 +204,7 @@ export function parseHolderBindingFromCredential(payload?: Record<string, unknow
 export function parseIssuerFromCredential(
   header?: Record<string, unknown>,
   payload?: Record<string, unknown>
-): SdJwtVcIssuer {
+): SdJwtVcIssuer<EncodedX509Certificate> {
   if (!payload || !header) throw new SdJwtVcError('SD-JWT is missing payload')
   const iss = payload.iss as string | undefined
 
@@ -208,47 +219,48 @@ export function parseIssuerFromCredential(
       throw new SdJwtVcError('Invalid x5c header in credential. Not an array of strings.')
     }
 
-    const certificateChain = header.x5c.map((cert) => X509Certificate.fromEncodedCertificate(cert))
-
     return {
       method: 'x5c',
-      x5c: certificateChain,
+      x5c: header.x5c,
       issuer: iss,
     }
   }
 
   if (iss?.startsWith('did:')) {
-    // If `did` is used, we require a relative KID to be present to identify
-    // the key used by issuer to sign the sd-jwt-vc
-    if (!header.kid) {
-      throw new SdJwtVcError('Credential does not contain a kid in the header')
-    }
-
-    const issuerKid = header.kid as string
-
-    let didUrl: string
-    if (issuerKid.startsWith('#')) {
-      didUrl = `${iss}${issuerKid}`
-    } else if (issuerKid.startsWith('did:')) {
-      const didFromKid = parseDid(issuerKid)
-      if (didFromKid.did !== iss) {
-        throw new SdJwtVcError(
-          `kid in header is an absolute DID URL, but the did (${didFromKid.did}) does not match with the 'iss' did (${iss})`
-        )
-      }
-
-      didUrl = issuerKid
-    } else {
-      throw new SdJwtVcError(
-        'Invalid issuer kid for did. Only absolute or relative (starting with #) did urls are supported.'
-      )
-    }
-
     return {
       method: 'did',
-      didUrl,
+      didUrl: getIssuerDidUrl(iss, header.kid),
     }
   }
 
   throw new SdJwtVcError('Unsupported signing method for SD-JWT VC. Only did and x5c are supported at the moment.')
+}
+
+/**
+ * Returns the did url of the issuer key from the `iss` did and the `kid` header. An absolute `kid` must belong to the `iss` did.
+ */
+export function getIssuerDidUrl(iss: string, kid: unknown): string {
+  if (!kid) {
+    throw new SdJwtVcError('JWT does not contain a kid in the header')
+  }
+
+  const issuerKid = kid as string
+  if (issuerKid.startsWith('#')) {
+    return `${iss}${issuerKid}`
+  }
+
+  if (issuerKid.startsWith('did:')) {
+    const didFromKid = parseDid(issuerKid)
+    if (didFromKid.did !== iss) {
+      throw new SdJwtVcError(
+        `kid in header is an absolute DID URL, but the did (${didFromKid.did}) does not match with the 'iss' did (${iss})`
+      )
+    }
+
+    return issuerKid
+  }
+
+  throw new SdJwtVcError(
+    'Invalid issuer kid for did. Only absolute or relative (starting with #) did urls are supported.'
+  )
 }

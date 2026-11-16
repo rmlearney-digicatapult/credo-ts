@@ -1,3 +1,4 @@
+import { Kms, TypedArrayEncoder } from '@credo-ts/core'
 import { Subject } from 'rxjs'
 import type { MockedClassConstructor } from '../../../../../../../../../tests/types'
 import type { AnonCredsCredentialMetadata } from '../../../../../../../../anoncreds/src/index'
@@ -18,6 +19,13 @@ import { DidCommCredentialExchangeRecord } from '../../../../repository'
 import { DidCommCredentialExchangeRepository } from '../../../../repository/DidCommCredentialExchangeRepository'
 import { DidCommRevocationNotificationV1Message, DidCommRevocationNotificationV2Message } from '../../messages'
 import { DidCommRevocationNotificationService } from '../DidCommRevocationNotificationService'
+
+// The key the envelope proved as the sender, which assertReadyConnection requires
+const testSenderKey = Kms.PublicJwk.fromPublicKey({
+  kty: 'OKP',
+  crv: 'Ed25519',
+  publicKey: TypedArrayEncoder.fromBase58('8HH5gYEeNc3z7PYXmd54d4x6qAfCNrqQqEB3nS7Zfu7K'),
+}) as Kms.PublicJwk<Kms.Ed25519PublicJwk>
 
 vi.mock('../../../../repository/DidCommCredentialExchangeRepository')
 const CredentialRepositoryMock = DidCommCredentialExchangeRepository as MockedClassConstructor<
@@ -62,9 +70,7 @@ describe('RevocationNotificationService', () => {
 
       const date = new Date('2020-01-01T00:00:00.000Z')
 
-      const dateSpy = vi.spyOn(global, 'Date').mockImplementation(function () {
-        return date
-      })
+      vi.useFakeTimers({ toFake: ['Date'], now: date })
 
       const credentialRecord = new DidCommCredentialExchangeRecord({
         threadId: 'thread-id',
@@ -80,7 +86,7 @@ describe('RevocationNotificationService', () => {
       } satisfies AnonCredsCredentialMetadata
 
       // Set required tags
-      credentialRecord.setTag('anonCredsUnqualifiedRevocationRegistryId', metadata.revocationRegistryId)
+      credentialRecord.setTag('anonCredsRevocationRegistryId', metadata.revocationRegistryId)
       credentialRecord.setTag('anonCredsCredentialRevocationId', metadata.credentialRevocationId)
 
       mockFunction(credentialRepository.getSingleByQuery).mockResolvedValueOnce(credentialRecord)
@@ -91,6 +97,7 @@ describe('RevocationNotificationService', () => {
         comment: 'Credential has been revoked',
       })
       const messageContext = new DidCommInboundMessageContext(revocationNotificationMessage, {
+        senderKey: testSenderKey,
         connection,
         agentContext,
       })
@@ -115,7 +122,7 @@ describe('RevocationNotificationService', () => {
         },
       })
 
-      dateSpy.mockRestore()
+      vi.useRealTimers()
     })
 
     test('does not emit revocation notification event if no credential record exists for indy thread', async () => {
@@ -138,6 +145,7 @@ describe('RevocationNotificationService', () => {
         comment: 'Credential has been revoked',
       })
       const messageContext = new DidCommInboundMessageContext(revocationNotificationMessage, {
+        senderKey: testSenderKey,
         connection,
         agentContext,
       })
@@ -179,9 +187,7 @@ describe('RevocationNotificationService', () => {
 
       const date = new Date('2020-01-01T00:00:00.000Z')
 
-      const dateSpy = vi.spyOn(global, 'Date').mockImplementation(function () {
-        return date
-      })
+      vi.useFakeTimers({ toFake: ['Date'], now: date })
 
       const credentialRecord = new DidCommCredentialExchangeRecord({
         threadId: 'thread-id',
@@ -205,6 +211,7 @@ describe('RevocationNotificationService', () => {
         comment: 'Credential has been revoked',
       })
       const messageContext = new DidCommInboundMessageContext(revocationNotificationMessage, {
+        senderKey: testSenderKey,
         agentContext,
         connection,
       })
@@ -229,7 +236,7 @@ describe('RevocationNotificationService', () => {
         },
       })
 
-      dateSpy.mockRestore()
+      vi.useRealTimers()
     })
 
     test('does not emit revocation notification event if no credential record exists for indy thread', async () => {
@@ -253,6 +260,7 @@ describe('RevocationNotificationService', () => {
         comment: 'Credential has been revoked',
       })
       const messageContext = new DidCommInboundMessageContext(revocationNotificationMessage, {
+        senderKey: testSenderKey,
         connection,
         agentContext,
       })

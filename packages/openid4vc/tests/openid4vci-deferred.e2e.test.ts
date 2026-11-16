@@ -3,6 +3,7 @@ import {
   ClaimFormat,
   CredoError,
   DidsApi,
+  JsonEncoder,
   JwsService,
   Jwt,
   JwtPayload,
@@ -19,14 +20,18 @@ import {
   preAuthorizedCodeGrantIdentifier,
   refreshTokenGrantIdentifier,
 } from '@openid4vc/oauth2'
-import { AuthorizationFlow, type CredentialRequest } from '@openid4vc/openid4vci'
+import { AuthorizationFlow, type CredentialRequest, Openid4vciVersion } from '@openid4vc/openid4vci'
 import { randomUUID } from 'crypto'
 import express, { type Express } from 'express'
 import { InMemoryWalletModule } from '../../../tests/InMemoryWalletModule'
 import { setupNockToExpress } from '../../../tests/nockToExpress'
 import { TenantsModule } from '../../tenants/src'
 import {
+  OpenId4VcIssuanceSessionRepository,
   OpenId4VcIssuanceSessionState,
+  type OpenId4VcIssuanceSessionStateChangedEvent,
+  OpenId4VcIssuerEvents,
+  OpenId4VcIssuerModuleConfig,
   type OpenId4VcIssuerModuleConfigOptions,
   type OpenId4VciSignMdocCredentials,
   OpenId4VcModule,
@@ -77,6 +82,7 @@ describe('OpenId4Vci (Deferred)', () => {
     string,
     {
       credentialRequest: CredentialRequest
+      format?: string
     }
   > = {}
 
@@ -92,11 +98,12 @@ describe('OpenId4Vci (Deferred)', () => {
           issuer: {
             baseUrl: issuanceBaseUrl,
             dpopRequired: true,
-            credentialRequestToCredentialMapper: async ({ credentialRequest, holderBinding }) => {
+            credentialRequestToCredentialMapper: async ({ credentialRequest, credentialConfiguration }) => {
               const uuid = randomUUID()
 
               storage[uuid] = {
                 credentialRequest,
+                format: credentialConfiguration.format,
               }
 
               return {
@@ -114,7 +121,8 @@ describe('OpenId4Vci (Deferred)', () => {
               if (!storage[deferredCredentialRequest.transaction_id]) {
                 throw new Error('No credential request found for transaction id')
               }
-              const { credentialRequest } = storage[deferredCredentialRequest.transaction_id]
+              const { credentialRequest, format } = storage[deferredCredentialRequest.transaction_id]
+              const credentialFormat = credentialRequest.format ?? format
 
               if (!transaction.holderBinding) {
                 throw new Error('No holder binding found for transaction')
@@ -129,12 +137,18 @@ describe('OpenId4Vci (Deferred)', () => {
                 throw new Error('No verification method found')
               }
 
-              if (credentialRequest.format === 'vc+sd-jwt') {
+              if (credentialFormat === 'vc+sd-jwt') {
                 return {
                   type: 'credentials',
                   format: 'dc+sd-jwt',
                   credentials: transaction.holderBinding.keys.map((holderBinding) => ({
-                    payload: { vct: credentialRequest.vct as string, university: 'innsbruck', degree: 'bachelor' },
+                    payload: {
+                      vct:
+                        (credentialRequest.vct as string | undefined) ??
+                        universityDegreeCredentialConfigurationSupported.vct,
+                      university: 'innsbruck',
+                      degree: 'bachelor',
+                    },
                     holder: holderBinding,
                     issuer: {
                       method: 'did',
@@ -144,7 +158,7 @@ describe('OpenId4Vci (Deferred)', () => {
                   })),
                 }
               }
-              if (credentialRequest.format === 'mso_mdoc') {
+              if (credentialFormat === 'mso_mdoc') {
                 return {
                   type: 'credentials',
                   format: ClaimFormat.MsoMdoc,
@@ -328,7 +342,7 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
         authorizationServerUrl: 'http://localhost:4747',
         issuerState: 'dbf99eea-0131-48b0-9022-17f7ebe25ea7',
       },
-      version: 'v1.draft15',
+      version: 'v1',
       generateRefreshTokens: true,
     })
 
@@ -442,6 +456,7 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
       issuerId: openIdIssuerTenant.issuerId,
       credentialConfigurationIds: ['universityDegree'],
       preAuthorizedCodeFlowConfig: {},
+      // The other tests use v1
       version: 'v1.draft15',
       generateRefreshTokens: true,
     })
@@ -600,5 +615,473 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
     expect(firstMdoc.docType).toEqual('UniversityDegreeCredential')
 
     await holderTenant.endSession()
+  })
+
+  it('holder uses a new response encryption key for each credential and deferred credential request', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const requestEncryptionKey = await issuerTenant.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      dpopSigningAlgValuesSupported: [Kms.KnownJwaSignatureAlgorithms.ES256],
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+        otherUniversityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+      credentialRequestEncryption: { required: true, jwks: [requestEncryptionKey.publicJwk] },
+      credentialResponseEncryption: { required: true },
+    })
+
+    const { credentialOffer } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree', 'otherUniversityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+    })
+    const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+    const tokenResponse = await holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+
+    const deleteKeySpy = vi.spyOn(holderTenant.context.resolve(Kms.KeyManagementApi), 'deleteKey')
+
+    const credentialResponse = await holderTenant.openid4vc.holder.requestCredentials({
+      resolvedCredentialOffer,
+      ...tokenResponse,
+      credentialBindingResolver,
+    })
+    const [first, second] = credentialResponse.deferredCredentials
+    expect(deleteKeySpy).toHaveBeenCalledTimes(2)
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    const firstResponse = await holderTenant.openid4vc.holder.requestDeferredCredentials({
+      ...tokenResponse,
+      ...first,
+      issuerMetadata: resolvedCredentialOffer.metadata,
+    })
+    expect(firstResponse.credentials).toHaveLength(1)
+    expect(deleteKeySpy).toHaveBeenCalledTimes(3)
+
+    const secondResponse = await holderTenant.openid4vc.holder.requestDeferredCredentials({
+      ...tokenResponse,
+      ...second,
+      dpop: firstResponse.dpop,
+      issuerMetadata: resolvedCredentialOffer.metadata,
+    })
+    expect(secondResponse.credentials).toHaveLength(1)
+    expect(deleteKeySpy).toHaveBeenCalledTimes(4)
+    expect(new Set(deleteKeySpy.mock.calls.map(([{ keyId }]) => keyId)).size).toEqual(4)
+
+    deleteKeySpy.mockRestore()
+    await holderTenant.endSession()
+  })
+
+  it('holder can retry an encrypted deferred credential request after it failed', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const requestEncryptionKey = await issuerTenant.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      dpopSigningAlgValuesSupported: [Kms.KnownJwaSignatureAlgorithms.ES256],
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+      credentialRequestEncryption: { required: true, jwks: [requestEncryptionKey.publicJwk] },
+      credentialResponseEncryption: { required: true },
+    })
+
+    const { credentialOffer } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+    })
+    const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+    const tokenResponse = await holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+    const credentialResponse = await holderTenant.openid4vc.holder.requestCredentials({
+      resolvedCredentialOffer,
+      ...tokenResponse,
+      credentialBindingResolver,
+    })
+    const [deferred] = credentialResponse.deferredCredentials
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    const deleteKeySpy = vi.spyOn(holderTenant.context.resolve(Kms.KeyManagementApi), 'deleteKey')
+    await expect(
+      holderTenant.openid4vc.holder.requestDeferredCredentials({
+        ...tokenResponse,
+        ...deferred,
+        accessToken: 'invalid',
+        issuerMetadata: resolvedCredentialOffer.metadata,
+      })
+    ).rejects.toThrow()
+    expect(deleteKeySpy).toHaveBeenCalledTimes(1)
+
+    const retryResponse = await holderTenant.openid4vc.holder.requestDeferredCredentials({
+      ...tokenResponse,
+      ...deferred,
+      issuerMetadata: resolvedCredentialOffer.metadata,
+    })
+    expect(retryResponse.credentials).toHaveLength(1)
+    expect(deleteKeySpy).toHaveBeenCalledTimes(2)
+
+    deleteKeySpy.mockRestore()
+    await holderTenant.endSession()
+  })
+
+  it('holder does not request an encrypted deferred credential response before OpenID4VCI 1.0, and fails when it is required', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const requestEncryptionKey = await issuerTenant.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      dpopSigningAlgValuesSupported: [Kms.KnownJwaSignatureAlgorithms.ES256],
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+      credentialRequestEncryption: { required: false, jwks: [requestEncryptionKey.publicJwk] },
+      credentialResponseEncryption: { required: false },
+    })
+
+    const { credentialOffer } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+    })
+    const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+    const tokenResponse = await holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+    const credentialResponse = await holderTenant.openid4vc.holder.requestCredentials({
+      resolvedCredentialOffer,
+      ...tokenResponse,
+      credentialBindingResolver,
+      credentialResponseEncryption: 'preferred',
+    })
+    const [deferred] = credentialResponse.deferredCredentials
+    expect(deferred.credentialResponseEncryption).toEqual('preferred')
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    // The issuer answers with a plain JSON response when no response encryption is requested, like
+    // an issuer on a version before 1.0 always does
+    const createKeySpy = vi.spyOn(holderTenant.context.resolve(Kms.KeyManagementApi), 'createKey')
+    const issuerMetadata = { ...resolvedCredentialOffer.metadata, originalDraftVersion: Openid4vciVersion.Draft15 }
+    await expect(
+      holderTenant.openid4vc.holder.requestDeferredCredentials({
+        ...tokenResponse,
+        ...deferred,
+        issuerMetadata,
+        credentialResponseEncryption: 'required',
+      })
+    ).rejects.toThrow("the deferred credential response can't be encrypted")
+
+    const deferredResponse = await holderTenant.openid4vc.holder.requestDeferredCredentials({
+      ...tokenResponse,
+      ...deferred,
+      issuerMetadata,
+    })
+    expect(deferredResponse.credentials).toHaveLength(1)
+    expect(createKeySpy).not.toHaveBeenCalled()
+
+    createKeySpy.mockRestore()
+    await holderTenant.endSession()
+  })
+
+  it('refresh token can be used before the first credential request, only with its DPoP key', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      dpopSigningAlgValuesSupported: [Kms.KnownJwaSignatureAlgorithms.ES256],
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+    })
+
+    const { credentialOffer, issuanceSession } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+      generateRefreshTokens: true,
+    })
+
+    const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+    const tokenResponse = await holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+    expect(tokenResponse.dpop).toBeDefined()
+
+    // Simulate a session created before refresh tokens required DPoP. The refresh token's DPoP binding still applies
+    const issuanceSessionRepository = issuerTenant.dependencyManager.resolve(OpenId4VcIssuanceSessionRepository)
+    const issuanceSessionRecord = await issuanceSessionRepository.getById(issuerTenant.context, issuanceSession.id)
+    issuanceSessionRecord.dpop = { required: false }
+    await issuanceSessionRepository.update(issuerTenant.context, issuanceSessionRecord)
+
+    const refreshOptions = {
+      issuerMetadata: resolvedCredentialOffer.metadata,
+      authorizationServer: tokenResponse.authorizationServer,
+      refreshToken: tokenResponse.refreshToken as string,
+    }
+
+    await expect(holderTenant.openid4vc.holder.refreshToken(refreshOptions)).rejects.toThrow(
+      'Missing required DPoP proof'
+    )
+
+    const otherDpopKey = await holderTenant.kms.createKey({ type: { kty: 'EC', crv: 'P-256' } })
+    await expect(
+      holderTenant.openid4vc.holder.refreshToken({
+        ...refreshOptions,
+        dpop: {
+          alg: Kms.KnownJwaSignatureAlgorithms.ES256,
+          jwk: Kms.PublicJwk.fromPublicJwk(otherDpopKey.publicJwk),
+        },
+      })
+    ).rejects.toThrow('invalid_dpop_proof')
+
+    const refreshedToken = await holderTenant.openid4vc.holder.refreshToken({
+      ...refreshOptions,
+      dpop: tokenResponse.dpop,
+    })
+    expect(refreshedToken.accessToken).toEqual(expect.any(String))
+
+    // A refresh keeps the session state and doesn't emit a state changed event
+    const eventsFromAccessTokenCreated: OpenId4VcIssuanceSessionStateChangedEvent[] = []
+    issuer.replaySubject
+      .subscribe((event) => {
+        const { payload } = event as OpenId4VcIssuanceSessionStateChangedEvent
+        if (
+          event.type === OpenId4VcIssuerEvents.IssuanceSessionStateChanged &&
+          payload.issuanceSession.id === issuanceSession.id &&
+          payload.previousState === OpenId4VcIssuanceSessionState.AccessTokenCreated
+        ) {
+          eventsFromAccessTokenCreated.push(event as OpenId4VcIssuanceSessionStateChangedEvent)
+        }
+      })
+      .unsubscribe()
+    expect(eventsFromAccessTokenCreated).toHaveLength(0)
+
+    await holderTenant.endSession()
+  })
+
+  it('refresh token is verified before the session lookup, and an expired session is not changed', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      dpopSigningAlgValuesSupported: [Kms.KnownJwaSignatureAlgorithms.ES256],
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+    })
+
+    const { credentialOffer, issuanceSession } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+      generateRefreshTokens: true,
+    })
+
+    const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+    const tokenResponse = await holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+
+    const refreshOptions = {
+      issuerMetadata: resolvedCredentialOffer.metadata,
+      authorizationServer: tokenResponse.authorizationServer,
+      dpop: tokenResponse.dpop,
+    }
+
+    // Unsigned token that only knows the pre-authorized code from the offer
+    const credentialIssuer = resolvedCredentialOffer.metadata.credentialIssuer.credential_issuer
+    const forgedRefreshToken = [
+      { typ: 'credo+refresh_token', alg: 'ES256' },
+      {
+        iss: credentialIssuer,
+        aud: credentialIssuer,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        'pre-authorized_code': issuanceSession.preAuthorizedCode,
+      },
+    ]
+      .map((part) => JsonEncoder.toBase64Url(part))
+      .concat('c2lnbmF0dXJl')
+      .join('.')
+
+    await expect(
+      holderTenant.openid4vc.holder.refreshToken({ ...refreshOptions, refreshToken: forgedRefreshToken })
+    ).rejects.toThrow('Invalid refresh token')
+
+    const issuanceSessionRepository = issuerTenant.dependencyManager.resolve(OpenId4VcIssuanceSessionRepository)
+    const sessionRecord = await issuanceSessionRepository.getById(issuerTenant.context, issuanceSession.id)
+    sessionRecord.expiresAt = new Date(Date.now() - 1000)
+    await issuanceSessionRepository.update(issuerTenant.context, sessionRecord)
+
+    await expect(
+      holderTenant.openid4vc.holder.refreshToken({ ...refreshOptions, refreshToken: forgedRefreshToken })
+    ).rejects.toThrow('Invalid refresh token')
+    await expect(
+      holderTenant.openid4vc.holder.refreshToken({
+        ...refreshOptions,
+        refreshToken: tokenResponse.refreshToken as string,
+      })
+    ).rejects.toThrow('Session expired')
+
+    const sessionAfterRefresh = await issuanceSessionRepository.getById(issuerTenant.context, issuanceSession.id)
+    expect(sessionAfterRefresh.state).toEqual(OpenId4VcIssuanceSessionState.AccessTokenCreated)
+    expect(sessionAfterRefresh.errorMessage).toBeUndefined()
+
+    await holderTenant.endSession()
+  })
+
+  it('deferred credential request for an expired session is rejected without changing the session', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      dpopSigningAlgValuesSupported: [Kms.KnownJwaSignatureAlgorithms.ES256],
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+    })
+
+    const { credentialOffer, issuanceSession } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+    })
+
+    const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+    const tokenResponse = await holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+    const credentialResponse = await holderTenant.openid4vc.holder.requestCredentials({
+      resolvedCredentialOffer,
+      ...tokenResponse,
+      credentialBindingResolver,
+    })
+    expect(credentialResponse.deferredCredentials).toHaveLength(1)
+
+    const issuanceSessionRepository = issuerTenant.dependencyManager.resolve(OpenId4VcIssuanceSessionRepository)
+    const sessionRecord = await issuanceSessionRepository.getById(issuerTenant.context, issuanceSession.id)
+    const stateBeforeExpiry = sessionRecord.state
+    sessionRecord.expiresAt = new Date(Date.now() - 1000)
+    await issuanceSessionRepository.update(issuerTenant.context, sessionRecord)
+
+    await expect(
+      holderTenant.openid4vc.holder.requestDeferredCredentials({
+        ...tokenResponse,
+        ...credentialResponse.deferredCredentials[0],
+        issuerMetadata: resolvedCredentialOffer.metadata,
+      })
+    ).rejects.toThrow('Session expired')
+
+    const sessionAfterRequest = await issuanceSessionRepository.getById(issuerTenant.context, issuanceSession.id)
+    expect(sessionAfterRequest.state).toEqual(stateBeforeExpiry)
+    expect(sessionAfterRequest.errorMessage).toBeUndefined()
+
+    await holderTenant.endSession()
+  })
+
+  it('refresh tokens are only issued with DPoP', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+    })
+
+    await expect(
+      issuerTenant.openid4vc.issuer.createCredentialOffer({
+        issuerId: openIdIssuerTenant.issuerId,
+        credentialConfigurationIds: ['universityDegree'],
+        preAuthorizedCodeFlowConfig: {},
+        generateRefreshTokens: true,
+        authorization: { requireDpop: false },
+      })
+    ).rejects.toThrow('Refresh tokens can only be generated when DPoP is required')
+
+    const { issuanceSession } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+      issuerId: openIdIssuerTenant.issuerId,
+      credentialConfigurationIds: ['universityDegree'],
+      preAuthorizedCodeFlowConfig: {},
+      version: 'v1',
+      generateRefreshTokens: true,
+    })
+
+    // Simulate a session created before refresh tokens required DPoP
+    const issuanceSessionRepository = issuerTenant.dependencyManager.resolve(OpenId4VcIssuanceSessionRepository)
+    const issuanceSessionRecord = await issuanceSessionRepository.getById(issuerTenant.context, issuanceSession.id)
+    issuanceSessionRecord.dpop = { required: false }
+    await issuanceSessionRepository.update(issuerTenant.context, issuanceSessionRecord)
+
+    const tokenResponse = await fetch(`${issuanceBaseUrl}/${openIdIssuerTenant.issuerId}/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: preAuthorizedCodeGrantIdentifier,
+        'pre-authorized_code': issuanceSession.preAuthorizedCode as string,
+      }).toString(),
+    })
+    expect(tokenResponse.status).toBe(200)
+
+    const tokenResponseBody = (await tokenResponse.json()) as Record<string, unknown>
+    expect(tokenResponseBody).toMatchObject({ access_token: expect.any(String), token_type: 'Bearer' })
+    expect(tokenResponseBody.refresh_token).toBeUndefined()
+
+    await issuerTenant.endSession()
+  })
+
+  it('refresh tokens can be enabled in the module config and disabled per session', async () => {
+    const issuerTenant = await issuer.agent.modules.tenants.getTenantAgent({ tenantId: issuer1.tenantId })
+    const holderTenant = await holder.agent.modules.tenants.getTenantAgent({ tenantId: holder1.tenantId })
+
+    const openIdIssuerTenant = await issuerTenant.openid4vc.issuer.createIssuer({
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+    })
+
+    const issuerConfig = issuer.agent.dependencyManager.resolve(OpenId4VcIssuerModuleConfig)
+    vi.spyOn(issuerConfig, 'generateRefreshTokens', 'get').mockReturnValue(true)
+
+    const requestToken = async (generateRefreshTokens?: boolean) => {
+      const { credentialOffer } = await issuerTenant.openid4vc.issuer.createCredentialOffer({
+        issuerId: openIdIssuerTenant.issuerId,
+        credentialConfigurationIds: ['universityDegree'],
+        preAuthorizedCodeFlowConfig: {},
+        generateRefreshTokens,
+      })
+      const resolvedCredentialOffer = await holderTenant.openid4vc.holder.resolveCredentialOffer(credentialOffer)
+      return holderTenant.openid4vc.holder.requestToken({ resolvedCredentialOffer })
+    }
+
+    expect((await requestToken()).refreshToken).toEqual(expect.any(String))
+    expect((await requestToken(false)).refreshToken).toBeUndefined()
+
+    await expect(
+      issuerTenant.openid4vc.issuer.createCredentialOffer({
+        issuerId: openIdIssuerTenant.issuerId,
+        credentialConfigurationIds: ['universityDegree'],
+        preAuthorizedCodeFlowConfig: {},
+        authorization: { requireDpop: false },
+      })
+    ).rejects.toThrow('Refresh tokens can only be generated when DPoP is required')
+
+    // An external authorization server issues the tokens, so refresh tokens don't apply
+    const externalAuthorizationServerIssuer = await issuerTenant.openid4vc.issuer.createIssuer({
+      credentialConfigurationsSupported: {
+        universityDegree: universityDegreeCredentialConfigurationSupported,
+      },
+      authorizationServerConfigs: [{ type: 'direct', issuer: 'http://localhost:4747' }],
+    })
+    await expect(
+      issuerTenant.openid4vc.issuer.createCredentialOffer({
+        issuerId: externalAuthorizationServerIssuer.issuerId,
+        credentialConfigurationIds: ['universityDegree'],
+        authorizationCodeFlowConfig: { authorizationServerUrl: 'http://localhost:4747' },
+        authorization: { requireDpop: false },
+      })
+    ).resolves.toBeDefined()
+
+    await holderTenant.endSession()
+    await issuerTenant.endSession()
   })
 })

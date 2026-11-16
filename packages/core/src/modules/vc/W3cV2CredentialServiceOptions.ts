@@ -1,4 +1,4 @@
-import type { TrustedIssuerDid } from '../../agent/TrustedIssuersForVerification'
+import type { GetTrustedIssuersForCredential, TrustedIssuerDid } from '../../agent/TrustedIssuersForVerification'
 import type { HashName } from '../../crypto'
 import type { KnownJwaSignatureAlgorithm } from '../kms'
 import type { IDisclosureFrame, IPresentationFrame, SdJwtVcHolderBinding } from '../sd-jwt-vc'
@@ -120,16 +120,29 @@ interface W3cV2VerifyCredentialOptionsBase<Credential = unknown> {
   verifyCredentialStatus?: boolean
 
   /**
-   * Trusted issuers for the verification.
+   * Trusted issuers for the verification, or a callback that resolves them for each credential.
    */
-  trustedIssuers?: TrustedIssuerDid[]
+  trustedIssuers?: TrustedIssuerDid[] | GetTrustedIssuersForCredential
+
+  /**
+   * Date that should be used as the current time. If not provided, current time will be used.
+   */
+  now?: Date
 }
 
 export interface W3cV2JwtVerifyCredentialOptions
   extends W3cV2VerifyCredentialOptionsBase<W3cV2JwtVerifiableCredential | string> {}
 
 export interface W3cV2SdJwtVerifyCredentialOptions
-  extends W3cV2VerifyCredentialOptionsBase<W3cV2SdJwtVerifiableCredential | string> {}
+  extends W3cV2VerifyCredentialOptionsBase<W3cV2SdJwtVerifiableCredential | string> {
+  /**
+   * Requires a KB-JWT with this `nonce`, and with this `aud` when `audience` is set.
+   */
+  keyBinding?: {
+    nonce: string
+    audience: string | string[]
+  }
+}
 
 interface W3cV2SignPresentationOptionsBase<Format extends ClaimFormat = ClaimFormat> {
   /**
@@ -189,9 +202,14 @@ interface W3cV2VerifyPresentationOptionsBase<Presentation = unknown> {
   domain?: string
 
   /**
-   * Trusted issuers for the verification.
+   * Trusted issuers for the verification, or a callback that resolves them for each credential.
    */
-  trustedIssuers?: TrustedIssuerDid[]
+  trustedIssuers?: TrustedIssuerDid[] | GetTrustedIssuersForCredential
+
+  /**
+   * Date that should be used as the current time. If not provided, current time will be used.
+   */
+  now?: Date
 }
 
 export interface W3cV2JwtVerifyPresentationOptions

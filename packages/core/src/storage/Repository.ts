@@ -3,7 +3,6 @@ import type { EventEmitter } from '../agent/EventEmitter'
 import { RecordDuplicateError, RecordNotFoundError } from '../error'
 import { CachedStorageService } from '../modules/cache/CachedStorageService'
 import { CacheModuleConfig } from '../modules/cache/CacheModuleConfig'
-import { JsonTransformer } from '../utils'
 import type { BaseRecord } from './BaseRecord'
 import type { RecordDeletedEvent, RecordSavedEvent, RecordUpdatedEvent } from './RepositoryEvents'
 import { RepositoryEventTypes } from './RepositoryEvents'
@@ -82,7 +81,7 @@ export class Repository<T extends BaseRecord<any, any, any>> {
     if (!storageService.updateByIdWithLock) {
       const record = await this.getById(agentContext, id)
       const updatedRecord = await updateCallback(record)
-      await this.update(agentContext, record)
+      await this.update(agentContext, updatedRecord)
       return updatedRecord
     }
 
@@ -100,13 +99,14 @@ export class Repository<T extends BaseRecord<any, any, any>> {
 
   /** @inheritDoc {StorageService#delete} */
   public async delete(agentContext: AgentContext, record: T): Promise<void> {
+    // Record in event should be static. Cloned before deleting, so an invalid record throws before it is deleted
+    const deletedRecord = record.clone()
     await this.getStorageService(agentContext).delete(agentContext, record)
 
     this.eventEmitter.emit<RecordDeletedEvent<T>>(agentContext, {
       type: RepositoryEventTypes.RecordDeleted,
       payload: {
-        // Record in event should be static
-        record: record.clone(),
+        record: deletedRecord,
       },
     })
   }
@@ -171,14 +171,13 @@ export class Repository<T extends BaseRecord<any, any, any>> {
     { cacheKey }: { cacheKey?: string } = {}
   ): Promise<T | null> {
     const cache = agentContext.resolve(CacheModuleConfig)
-    const useCacheStorage = cache.useCachedStorageService ?? false
+    const useCacheStorage = cache.useCachedStorageService && this.recordClass.allowCache
 
     if (useCacheStorage && cacheKey) {
-      const recordId = (await cache?.cache.get<string>(agentContext, cacheKey)) ?? null
-      if (recordId !== null) {
-        const recordJson = await cache?.cache.get<T>(agentContext, recordId)
-        if (recordJson) return JsonTransformer.fromJSON(recordJson, this.recordClass)
-      }
+      // Only the id is cached per cache key. The record comes from the cached storage service, which updates keep fresh
+      const recordId = await cache.cache.get<string>(agentContext, cacheKey)
+      const cachedRecord = recordId ? await this.findById(agentContext, recordId) : null
+      if (cachedRecord) return cachedRecord
     }
 
     const records = await this.findByQuery(agentContext, query)
@@ -193,8 +192,7 @@ export class Repository<T extends BaseRecord<any, any, any>> {
     }
 
     if (useCacheStorage && cacheKey) {
-      await cache?.cache.set(agentContext, cacheKey, records[0].id)
-      await cache?.cache.set(agentContext, records[0].id, records[0].toJSON())
+      await cache.cache.set(agentContext, cacheKey, records[0].id)
     }
 
     return records[0]

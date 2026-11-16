@@ -12,6 +12,7 @@ import {
 } from '../modules/kms'
 import { isKnownJwaSignatureAlgorithm } from '../modules/kms/jwk/jwa'
 import { convertLegacyTrustedCertificates } from '../modules/x509/utils/convertLegacyTrustedCertificates'
+import type { X509Certificate } from '../modules/x509/X509Certificate'
 import { X509ModuleConfig, type X509VerificationTrustedCertificates } from '../modules/x509/X509ModuleConfig'
 import { X509Service } from './../modules/x509/X509Service'
 import { type EncodedX509Certificate } from '../modules/x509/X509ServiceOptions'
@@ -33,6 +34,7 @@ import { JwtPayload } from './jose/jwt'
 export class JwsService {
   private async createJwsBase(agentContext: AgentContext, options: CreateJwsBaseOptions) {
     const { jwk, alg, x5c } = options.protectedHeaderOptions
+    this.assertNoUnsupportedHeaderParameters(options.protectedHeaderOptions)
 
     const kms = agentContext.dependencyManager.resolve(KeyManagementApi)
 
@@ -186,6 +188,8 @@ export class JwsService {
         throw new CredoError('Unable to verify JWS, protected header alg is not provided or not a string.')
       }
 
+      this.assertNoUnsupportedHeaderParameters(protectedJson)
+
       const jwsSigner =
         expectedJwsSigner ??
         (await this.jwsSignerFromJws(agentContext, {
@@ -251,6 +255,18 @@ export class JwsService {
     return { isValid: true, jwsSigners, jws: jwsFlattened }
   }
 
+  /**
+   * No JWS extensions are supported, so a JWS that marks any as critical must be rejected.
+   * `b64` (RFC 7797) changes the signing input, and must always be listed in `crit`.
+   *
+   * @see https://www.rfc-editor.org/rfc/rfc7515#section-4.1.11
+   */
+  private assertNoUnsupportedHeaderParameters(protectedHeader: Record<string, unknown>) {
+    if (protectedHeader.crit !== undefined || protectedHeader.b64 !== undefined) {
+      throw new CredoError("JWS protected header parameters 'crit' and 'b64' are not supported.")
+    }
+  }
+
   private buildProtected(options: JwsProtectedHeaderOptions) {
     return {
       ...options,
@@ -264,13 +280,13 @@ export class JwsService {
     agentContext: AgentContext,
     options: {
       jwsSigner: JwsSignerWithJwk
-      trustedCertificates?: EncodedX509Certificate[] | X509VerificationTrustedCertificates[]
+      trustedCertificates?: Array<EncodedX509Certificate | X509Certificate> | X509VerificationTrustedCertificates[]
     }
   ) {
     const { jwsSigner } = options
-    const x509ModuleConfig = agentContext.dependencyManager.resolve(X509ModuleConfig)
 
     if (jwsSigner.method === 'x5c') {
+      const x509ModuleConfig = agentContext.dependencyManager.resolve(X509ModuleConfig)
       const trustedCertificatesFromConfig = x509ModuleConfig.trustedCertificates ?? []
       const trustedCertificates = options.trustedCertificates ?? trustedCertificatesFromConfig
       if (trustedCertificates.length === 0) {
@@ -405,7 +421,7 @@ export interface VerifyJwsOptions {
    */
   resolveJwsSigner?: JwsSignerResolver
 
-  trustedCertificates?: EncodedX509Certificate[] | X509VerificationTrustedCertificates[]
+  trustedCertificates?: Array<EncodedX509Certificate | X509Certificate> | X509VerificationTrustedCertificates[]
 }
 
 export type JwsSignerResolver = (options: {

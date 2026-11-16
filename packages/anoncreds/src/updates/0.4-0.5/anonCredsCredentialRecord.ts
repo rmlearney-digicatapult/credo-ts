@@ -1,53 +1,51 @@
 import type { AgentContext, BaseAgent } from '@credo-ts/core'
 import { CacheModuleConfig, CredoError, W3cCredentialRecord, W3cCredentialService } from '@credo-ts/core'
-import { DidCommCredentialExchangeRepository } from '@credo-ts/didcomm'
 import { type AnonCredsCredentialRecord, AnonCredsCredentialRepository } from '../../repository'
 import type { AnonCredsHolderService } from '../../services'
 import { AnonCredsHolderServiceSymbol } from '../../services'
-import { fetchCredentialDefinition } from '../../utils/anonCredsObjects'
-import {
-  getIndyNamespaceFromIndyDid,
-  getQualifiedDidIndyDid,
-  getUnqualifiedRevocationRegistryDefinitionId,
-  isIndyDid,
-  isUnqualifiedCredentialDefinitionId,
-  isUnqualifiedIndyDid,
-  parseIndyRevocationRegistryId,
-} from '../../utils/indyIdentifiers'
 import type { W3cAnonCredsCredentialMetadata } from '../../utils/metadata'
 import { W3cAnonCredsCredentialMetadataKey } from '../../utils/metadata'
 import { getW3cRecordAnonCredsTags } from '../../utils/w3cAnonCredsUtils'
+import { resolveAnonCredsMigrationProvider } from '../optionalDependencies'
+import {
+  getIndyNamespaceFromIndyDid,
+  getQualifiedDidIndyDid,
+  getUnqualifiedIndyDidNamespaceIdentifier,
+  isIndyDid,
+  isUnqualifiedCredentialDefinitionId,
+  isUnqualifiedIndyDid,
+} from './unqualifiedIndyIdentifiers'
 
-async function getIndyNamespace(
-  agentContext: AgentContext,
-  legacyCredentialDefinitionId: string,
-  legacyIssuerId: string
-) {
+async function getIndyNamespace(agentContext: AgentContext, legacyIssuerId: string): Promise<string> {
   const cacheModuleConfig = agentContext.dependencyManager.resolve(CacheModuleConfig)
   const cache = cacheModuleConfig.cache
 
-  const indyCacheKey = `IndyVdrPoolService:${legacyIssuerId}`
-  const sovCacheKey = `IndySdkPoolService:${legacyIssuerId}`
+  const namespaceIdentifier = getUnqualifiedIndyDidNamespaceIdentifier(legacyIssuerId)
+  const indyCacheKey = `IndyVdrPoolService:${namespaceIdentifier}`
+  const sovCacheKey = `IndySdkPoolService:${namespaceIdentifier}`
 
-  const cachedNymResponse: Record<string, string> | null =
+  // Storage version 0.4 wrote the ledger of an unqualified did to the cache when it resolved the did.
+  const cachedNymResponse: Record<string, unknown> | null =
     (await cache.get(agentContext, indyCacheKey, { scope: 'global' })) ?? (await cache.get(agentContext, sovCacheKey))
 
-  if (!cachedNymResponse?.indyNamespace || typeof cachedNymResponse?.indyNamespace !== 'string') {
-    const credentialDefinitionReturn = await fetchCredentialDefinition(agentContext, legacyCredentialDefinitionId)
-    const namespace = credentialDefinitionReturn.indyNamespace
+  const indyNamespace = cachedNymResponse?.indyNamespace
+  if (typeof indyNamespace === 'string') return indyNamespace
 
-    if (!namespace) {
-      throw new CredoError(
-        'Could not determine the indyNamespace required for storing anoncreds in the new w3c format.'
-      )
-    }
-
-    return namespace
-  }
-  return cachedNymResponse.indyNamespace
+  throw new CredoError(
+    `Could not determine the indy namespace of issuer '${legacyIssuerId}'. The indy namespace is required to store the anoncreds credential in the new w3c format.`
+  )
 }
 
-async function migrateLegacyToW3cCredential(agentContext: AgentContext, legacyRecord: AnonCredsCredentialRecord) {
+async function migrateLegacyToW3cCredential(
+  agentContext: AgentContext,
+  legacyRecord: AnonCredsCredentialRecord,
+  relinkCredentialExchangeRecord?: (
+    legacyRecord: AnonCredsCredentialRecord,
+    w3cCredentialRecord: W3cCredentialRecord,
+    legacyTags: ReturnType<AnonCredsCredentialRecord['getTags']>,
+    indyNamespace: string | undefined
+  ) => Promise<void>
+) {
   const legacyTags = legacyRecord.getTags()
 
   let indyNamespace: string | undefined
@@ -65,7 +63,7 @@ async function migrateLegacyToW3cCredential(agentContext: AgentContext, legacyRe
       indyNamespace = getIndyNamespaceFromIndyDid(legacyTags.issuerId)
     }
   } else {
-    indyNamespace = await getIndyNamespace(agentContext, legacyTags.credentialDefinitionId, legacyTags.issuerId)
+    indyNamespace = await getIndyNamespace(agentContext, legacyTags.issuerId)
   }
 
   if (indyNamespace) {
@@ -135,43 +133,7 @@ async function migrateLegacyToW3cCredential(agentContext: AgentContext, legacyRe
 
   await w3cCredentialService.storeCredential(agentContext, { record: w3cCredentialRecord })
 
-  // Find the credential exchange record bound to this anoncreds credential and update it to point to the newly created w3c record
-  const credentialExchangeRepository = agentContext.dependencyManager.resolve(DidCommCredentialExchangeRepository)
-  const [relatedCredentialExchangeRecord] = await credentialExchangeRepository.findByQuery(agentContext, {
-    credentialIds: [legacyRecord.credentialId],
-  })
-
-  if (relatedCredentialExchangeRecord) {
-    // Replace the related binding by the new one
-    const credentialBindingIndex = relatedCredentialExchangeRecord.credentials.findIndex(
-      (binding) => binding.credentialRecordId === legacyRecord.credentialId
-    )
-    if (credentialBindingIndex !== -1) {
-      relatedCredentialExchangeRecord.credentials[credentialBindingIndex] = {
-        credentialRecordType: 'w3c',
-        credentialRecordId: w3cCredentialRecord.id,
-      }
-
-      // If using Indy dids, store both qualified/unqualified revRegId forms
-      // to allow retrieving it from revocation notification service
-      if (legacyTags.revocationRegistryId && indyNamespace) {
-        const { credentialDefinitionTag, namespaceIdentifier, revocationRegistryTag, schemaSeqNo } =
-          parseIndyRevocationRegistryId(legacyTags.revocationRegistryId)
-
-        relatedCredentialExchangeRecord.setTags({
-          anonCredsRevocationRegistryId: getQualifiedDidIndyDid(legacyTags.revocationRegistryId, indyNamespace),
-          anonCredsUnqualifiedRevocationRegistryId: getUnqualifiedRevocationRegistryDefinitionId(
-            namespaceIdentifier,
-            schemaSeqNo,
-            credentialDefinitionTag,
-            revocationRegistryTag
-          ),
-        })
-      }
-
-      await credentialExchangeRepository.update(agentContext, relatedCredentialExchangeRecord)
-    }
-  }
+  await relinkCredentialExchangeRecord?.(legacyRecord, w3cCredentialRecord, legacyTags, indyNamespace)
 }
 
 /**
@@ -187,13 +149,40 @@ export async function storeAnonCredsInW3cFormatV0_5<Agent extends BaseAgent>(age
 
   agent.config.logger.debug(`Found a total of ${records.length} legacy anonCreds credential records to update.`)
 
+  if (records.length === 0) return
+
+  const { provider, unavailableReason } = resolveAnonCredsMigrationProvider(agent.dependencyManager)
+
+  const relinkCredentialExchangeRecord = provider
+    ? async (
+        legacyRecord: AnonCredsCredentialRecord,
+        w3cCredentialRecord: W3cCredentialRecord,
+        legacyTags: ReturnType<AnonCredsCredentialRecord['getTags']>,
+        indyNamespace: string | undefined
+      ) => {
+        await provider.relinkCredentialExchangeRecord(agent.context, {
+          legacyCredentialId: legacyRecord.credentialId,
+          w3cCredentialRecordId: w3cCredentialRecord.id,
+          qualifiedRevocationRegistryId:
+            legacyTags.revocationRegistryId && indyNamespace
+              ? getQualifiedDidIndyDid(legacyTags.revocationRegistryId, indyNamespace)
+              : undefined,
+        })
+      }
+    : undefined
+
   for (const record of records) {
     agent.config.logger.debug(
       `Re-saving anonCreds credential record with id ${record.id} in the new w3c format, and deleting the legacy record`
     )
     try {
-      await migrateLegacyToW3cCredential(agent.context, record)
+      await migrateLegacyToW3cCredential(agent.context, record, relinkCredentialExchangeRecord)
       await anoncredsRepository.delete(agent.context, record)
+      if (!relinkCredentialExchangeRecord) {
+        agent.config.logger.warn(
+          `Could not relink a DIDComm credential exchange record for legacy AnonCreds credential record ${record.id} because ${unavailableReason}.`
+        )
+      }
       agent.config.logger.debug(
         `Successfully migrated w3c credential record with id ${record.id} to storage version 0.5`
       )
@@ -202,6 +191,7 @@ export async function storeAnonCredsInW3cFormatV0_5<Agent extends BaseAgent>(age
         `Failed to migrate w3c credential record with id ${record.id} to storage version 0.5`,
         error
       )
+      throw error
     }
   }
 }

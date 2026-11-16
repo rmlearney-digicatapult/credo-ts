@@ -43,7 +43,7 @@ export interface SdJwtVcIssuerDid {
   didUrl: string
 }
 
-export interface SdJwtVcIssuerX5c {
+export interface SdJwtVcIssuerX5c<Certificate extends X509Certificate | EncodedX509Certificate = X509Certificate> {
   method: 'x5c'
 
   /**
@@ -52,18 +52,10 @@ export interface SdJwtVcIssuerX5c {
    *
    * The certificate containing the public key corresponding to the key used to digitally sign the JWS MUST be the first certificate.
    */
-  x5c: X509Certificate[]
+  x5c: Certificate[]
 
   /**
-   * The issuer of the SD-JWT VC.
-   *
-   * NOTE: in the latest draft of SD-JWT VC the issuer field is optional when using an X509 certificates
-   * to sign the SD-JWT VC.
-   *
-   * Since it's not clear what the iss value should be Credo will likely require
-   * the value to be undefined in a future version, but for now if the issuer value
-   * is defined it MUST match an SAN URI or DNS entry in the leaf certificate, mimicking
-   * previous behavior.
+   * The issuer of the SD-JWT VC. Optional when signing with X509 certificates.
    */
   issuer?: string
 }
@@ -73,7 +65,9 @@ export type SdJwtVcHolderBinding = SdJwtVcHolderDidBinding | SdJwtVcHolderJwkBin
 
 // We only support did and x509 based issuance currently, but we might want to add support
 // for issuer metadata (as defined in SD-JWT VC) in the future
-export type SdJwtVcIssuer = SdJwtVcIssuerDid | SdJwtVcIssuerX5c
+export type SdJwtVcIssuer<Certificate extends X509Certificate | EncodedX509Certificate = X509Certificate> =
+  | SdJwtVcIssuerDid
+  | SdJwtVcIssuerX5c<Certificate>
 
 export interface SdJwtVcSignOptions<Payload extends SdJwtVcPayload = SdJwtVcPayload> {
   /**
@@ -138,7 +132,12 @@ export type SdJwtVcPresentOptions<_Payload extends SdJwtVcPayload = SdJwtVcPaylo
 }
 
 export type SdJwtVcVerifyOptions = {
-  compactSdJwtVc: string
+  /**
+   * The compact SD-JWT VC, or an SD-JWT VC that was already decoded with `fromCompact`, which is
+   * then not decoded again. The issuer and holder of a decoded SD-JWT VC are used as they are, so
+   * only pass what `fromCompact` returned.
+   */
+  sdJwtVc: string | SdJwtVc
 
   /**
    * If the key binding object is present, the sd-jwt is required to have a key binding jwt attached
@@ -192,7 +191,7 @@ export type SdJwtVcVerifyOptions = {
    *
    * @deprecated use `trustedIssuers` instead.
    */
-  trustedCertificates?: EncodedX509Certificate[] | X509VerificationTrustedCertificates[]
+  trustedCertificates?: Array<EncodedX509Certificate | X509Certificate> | X509VerificationTrustedCertificates[]
 
   /**
    * Trusted issuers for the verification. Only entries whose `method` matches the credential signer

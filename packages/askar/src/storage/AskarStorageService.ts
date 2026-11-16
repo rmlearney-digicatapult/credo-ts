@@ -6,7 +6,14 @@ import type {
   QueryOptions,
   StorageService,
 } from '@credo-ts/core'
-import { CredoError, injectable, JsonTransformer, RecordDuplicateError, RecordNotFoundError } from '@credo-ts/core'
+import {
+  CredoError,
+  injectable,
+  JsonTransformer,
+  RecordDecodingError,
+  RecordDuplicateError,
+  RecordNotFoundError,
+} from '@credo-ts/core'
 import { Scan, Session } from '@openwallet-foundation/askar-shared'
 
 import { AskarStoreManager } from '../AskarStoreManager'
@@ -158,20 +165,27 @@ export class AskarStorageService<T extends BaseRecord> implements StorageService
       }
       return recordToInstance(record, recordClass)
     } catch (error) {
-      if (error instanceof RecordNotFoundError) throw error
+      if (error instanceof RecordNotFoundError || error instanceof RecordDecodingError) throw error
       throw new AskarError(`Error getting record ${recordClass.name}`, { cause: error })
     }
   }
 
   /** @inheritDoc */
   public async getAll(agentContext: AgentContext, recordClass: BaseRecordConstructor<T>): Promise<T[]> {
-    const records = await this.withSession(agentContext, (session) => session.fetchAll({ category: recordClass.type }))
+    try {
+      const records = await this.withSession(agentContext, (session) =>
+        session.fetchAll({ category: recordClass.type })
+      )
 
-    const instances = []
-    for (const record of records) {
-      instances.push(recordToInstance(record, recordClass))
+      const instances = []
+      for (const record of records) {
+        instances.push(recordToInstance(record, recordClass))
+      }
+      return instances
+    } catch (error) {
+      if (error instanceof RecordDecodingError) throw error
+      throw new AskarError(`Error getting all records ${recordClass.name}. ${error.message}`, { cause: error })
     }
-    return instances
   }
 
   /** @inheritDoc */
@@ -184,6 +198,7 @@ export class AskarStorageService<T extends BaseRecord> implements StorageService
     const askarQuery = askarQueryFromSearchQuery(query)
 
     const { store, profile } = await this.askarStoreManager.getInitializedStoreWithProfile(agentContext)
+    const isPaginated = queryOptions?.offset !== undefined || queryOptions?.limit !== undefined
     const scan = new Scan({
       category: recordClass.type,
       store,
@@ -191,6 +206,8 @@ export class AskarStorageService<T extends BaseRecord> implements StorageService
       profile,
       offset: queryOptions?.offset,
       limit: queryOptions?.limit,
+      // Unordered rows let pages skip or repeat records. Askar's row id follows insertion order.
+      orderBy: isPaginated ? 'id' : undefined,
     })
 
     const instances = []
@@ -201,6 +218,7 @@ export class AskarStorageService<T extends BaseRecord> implements StorageService
       }
       return instances
     } catch (error) {
+      if (error instanceof RecordDecodingError) throw error
       throw new AskarError(`Error executing query. ${error.message}`, { cause: error })
     }
   }

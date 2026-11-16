@@ -7,12 +7,17 @@ import type { W3cJwtVerifiableCredential } from '../vc/jwt-vc/W3cJwtVerifiableCr
 import type { W3cJwtVerifiablePresentation } from '../vc/jwt-vc/W3cJwtVerifiablePresentation'
 import { defaultX509ParseOptions } from './utils/parseOptions'
 import { X509Certificate } from './X509Certificate'
+import { X509Error } from './X509Error'
 import type { X509ParseOptions } from './X509ServiceOptions'
-import { type X509RevocationCheckOptions } from './X509ValidationOptions'
+import {
+  withX509RevocationCheckDefaults,
+  type X509RevocationCheckOptions,
+  type X509RevocationCheckOptionsWithDefaults,
+} from './X509ValidationOptions'
 
 export type X509VerificationTrustedCertificates = {
-  issuance: string[]
-  status?: string[]
+  issuance: Array<string | X509Certificate>
+  status?: Array<string | X509Certificate>
 }
 
 export type X509VerificationTypeCredential = {
@@ -129,29 +134,21 @@ export interface X509ModuleConfigOptions {
    * it will fallback to the globally registered trusted certificates
    *
    * @deprecated use the global `getTrustedIssuersForVerification` instead
-   * @returns An array of base64-encoded certificate strings or PEM certificate strings.
+   * @returns An array of base64-encoded certificate strings, PEM certificate strings or `X509Certificate` instances.
    */
   getTrustedCertificatesForVerification?(
     agentContext: AgentContext,
     verificationContext: X509VerificationContext
   ):
-    | Promise<string[] | undefined | X509VerificationTrustedCertificates[]>
-    | string[]
+    | Promise<Array<string | X509Certificate> | undefined | X509VerificationTrustedCertificates[]>
+    | Array<string | X509Certificate>
     | X509VerificationTrustedCertificates[]
     | undefined
 
   /**
-   * Configuration for certificate revocation checking
-   * @default
-   * ```
-   * {
-   *  mode: X509RevocationCheckMode.SoftFail, // do not fail on network error
-   *  checkFullChain: true, // check the leaf and all intermediate CAs
-   *  timeoutMs: 5000, // 5 seconds
-   *  maxCrlSizeBytes: 10485760, // 10MB
-   *  crlCacheExpirySeconds: 3600 // 1 hour
-   * }
-   * ```
+   * Configuration for certificate revocation checking. Options that are not set use
+   * {@link defaultX509RevocationCheckOptions}: `SoftFail` (do not fail on network error) for the
+   * leaf and all intermediate CAs, a 5 second timeout, a 10 MB CRL size limit and a 1 hour cache.
    */
   revocationCheck?: X509RevocationCheckOptions
 
@@ -167,6 +164,21 @@ export interface X509ModuleConfigOptions {
    * the other parsing factories directly to control those.
    */
   parseOptions?: X509ParseOptions
+
+  /**
+   * How many parsed certificates the X.509 service of the agent keeps in memory, so a certificate
+   * that is seen on every request is parsed once. The least recently used certificate is dropped
+   * first. Set to 0 to parse every certificate again.
+   *
+   * A certificate of more than 12 KB is parsed every time, which bounds the memory an entry can
+   * hold. Certificates are usually 0.5 to 2 KB.
+   *
+   * `X509Certificate` instances are used as they are and do not go through this cache. Pass trusted
+   * certificates as instances when there are more of them than this limit.
+   *
+   * @default 250
+   */
+  parsedCertificateCacheLimit?: number
 }
 
 export class X509ModuleConfig {
@@ -174,6 +186,7 @@ export class X509ModuleConfig {
   #getTrustedCertificatesForVerification?: X509ModuleConfigOptions['getTrustedCertificatesForVerification']
   #revocationCheck?: X509RevocationCheckOptions
   #parseOptions: X509ParseOptions
+  #parsedCertificateCacheLimit: number
 
   public constructor(options?: X509ModuleConfigOptions) {
     // NOTE: must be set before the trusted certificates are parsed below
@@ -186,12 +199,29 @@ export class X509ModuleConfig {
     if (options?.revocationCheck) {
       this.#revocationCheck = options.revocationCheck
     }
+    this.#parsedCertificateCacheLimit = 250
+    if (options?.parsedCertificateCacheLimit !== undefined) {
+      this.setParsedCertificateCacheLimit(options.parsedCertificateCacheLimit)
+    }
   }
 
-  public get trustedCertificates() {
-    // TODO: we should probably update this API to return the instances, but don't want to
-    // break too much now
-    return this.#trustedCertificates?.map((cert) => cert.toString('pem'))
+  public get parsedCertificateCacheLimit() {
+    return this.#parsedCertificateCacheLimit
+  }
+
+  /**
+   * Another limit empties the cache. See {@link X509ModuleConfigOptions.parsedCertificateCacheLimit}.
+   */
+  public setParsedCertificateCacheLimit(limit: number) {
+    if (!Number.isInteger(limit) || limit < 0) {
+      throw new X509Error(`parsedCertificateCacheLimit must be 0 or a positive integer, received '${limit}'`)
+    }
+
+    this.#parsedCertificateCacheLimit = limit
+  }
+
+  public get trustedCertificates(): X509Certificate[] | undefined {
+    return this.#trustedCertificates && [...this.#trustedCertificates]
   }
 
   /**
@@ -208,8 +238,8 @@ export class X509ModuleConfig {
     this.#getTrustedCertificatesForVerification = fn
   }
 
-  public get revocationCheck(): X509RevocationCheckOptions | undefined {
-    return this.#revocationCheck
+  public get revocationCheck(): X509RevocationCheckOptionsWithDefaults {
+    return withX509RevocationCheckDefaults(this.#revocationCheck)
   }
 
   public setRevocationCheck(options?: X509RevocationCheckOptions) {

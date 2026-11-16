@@ -51,10 +51,26 @@ export interface X509ParseOptions {
   maxContentLength?: number
 }
 
-export interface X509ValidateCertificateChainOptions {
-  certificateChain: EncodedX509Certificate[]
+export interface X509CertificateValidationOptions {
+  /**
+   * Key usages the certificate must have. A certificate without a Key Usage extension passes this
+   * check, as the extension is optional and its absence means the key is unrestricted.
+   */
+  requiredKeyUsages?: X509KeyUsage[]
 
-  certificate?: EncodedX509Certificate
+  /**
+   * Extended key usages the certificate must have. `anyExtendedKeyUsage` does not satisfy a required
+   * extended key usage.
+   */
+  requiredExtendedKeyUsages?: X509ExtendedKeyUsage[]
+}
+
+export interface X509ValidateCertificateChainOptions {
+  /**
+   * The chain to validate, leaf first, as base64/PEM-encoded strings, DER bytes or {@link X509Certificate}
+   * instances. Instances are not parsed again, so `parseOptions` does not apply to them.
+   */
+  certificateChain: Array<EncodedX509Certificate | Uint8Array | X509Certificate>
 
   /**
    * The date for which the certificate chain should be valid
@@ -66,7 +82,11 @@ export interface X509ValidateCertificateChainOptions {
    */
   verificationDate?: Date
 
-  trustedCertificates?: EncodedX509Certificate[]
+  /**
+   * The certificates that are trusted. The chain is only valid when it contains one of these, or is
+   * completed by them. A self-signed root that is not in this list is not trusted.
+   */
+  trustedCertificates: Array<EncodedX509Certificate | Uint8Array | X509Certificate>
 
   /**
    * Whether to allow trusting intermediate or leaf certificates (non-root certificates)
@@ -91,6 +111,16 @@ export interface X509ValidateCertificateChainOptions {
   allowNonRootTrustedCertificate?: boolean
 
   /**
+   * Additional checks on certificates in the chain.
+   */
+  validation?: {
+    /**
+     * Checks on the leaf certificate, which is `certificate` or else the first certificate in the chain.
+     */
+    leaf?: X509CertificateValidationOptions
+  }
+
+  /**
    * Resource limits applied when parsing the DER/ASN.1 input. Replaces the module's configured
    * `parseOptions` in full rather than being merged with them. When omitted, the configured
    * options are used, falling back to {@link defaultX509ParseOptions}.
@@ -110,7 +140,10 @@ export interface X509GetLeafCertificateOptions {
 }
 
 export interface X509ParseCertificateOptions {
-  encodedCertificate: string
+  /**
+   * The certificate as a base64/PEM-encoded string, or as DER bytes.
+   */
+  encodedCertificate: EncodedX509Certificate | Uint8Array
 
   /**
    * Resource limits applied when parsing the DER/ASN.1 input. Replaces the module's configured
@@ -133,8 +166,8 @@ export interface X509CheckCertificateRevocationOptions {
   issuerCertificate: EncodedX509Certificate | X509Certificate
 
   /**
-   * Options controlling how revocation is checked. When omitted, the module's configured
-   * `revocationCheck` options are used, falling back to {@link X509RevocationCheckMode.SoftFail}.
+   * Options controlling how revocation is checked. Options that are not set use the module's
+   * `revocationCheck` options.
    */
   revocationCheckOptions?: X509RevocationCheckOptions
 
@@ -162,14 +195,12 @@ export interface X509FetchCertificateRevocationListOptions {
   issuerCertificate?: EncodedX509Certificate | X509Certificate
 
   /**
-   * Timeout in milliseconds for the CRL fetch.
-   * @default 5000
+   * Timeout in milliseconds for the CRL fetch. Defaults to the module's `revocationCheck.timeoutMs`.
    */
   timeoutMs?: number
 
   /**
-   * Maximum size in bytes for the CRL download.
-   * @default 10485760 (10 MB)
+   * Maximum size in bytes for the CRL download. Defaults to the module's `revocationCheck.maxCrlSizeBytes`.
    */
   maxCrlSizeBytes?: number
 
@@ -254,6 +285,12 @@ export type X509CertificateSigningRequestExtensionsOptions = Pick<
 export interface X509CertificateIssuerAndSubjectOptions {
   countryName?: string
   stateOrProvinceName?: string
+  organizationName?: string
+
+  /**
+   * The registered identifier of the organization (OID 2.5.4.97), for example `NTRNL-12345678`
+   */
+  organizationIdentifier?: string
   organizationalUnit?: string
   commonName?: string
 }
@@ -287,6 +324,8 @@ export interface X509CreateCertificateOptions {
    *
    * The issuer information of the X.509 Certificate
    *
+   * A string is used as-is and must already be escaped according to RFC 4514.
+   *
    */
   issuer: string | X509CertificateIssuerAndSubjectOptions
 
@@ -296,6 +335,7 @@ export interface X509CreateCertificateOptions {
    *
    * If the `subject` is not included, the `issuer` will be used
    *
+   * A string is used as-is and must already be escaped according to RFC 4514.
    *
    */
   subject?: string | X509CertificateIssuerAndSubjectOptions
@@ -340,6 +380,8 @@ export interface X509CreateCertificateSigningRequestOptions {
 
   /**
    * The subject information of the certificate signing request
+   *
+   * A string is used as-is and must already be escaped according to RFC 4514.
    */
   subject: string | X509CertificateIssuerAndSubjectOptions
 
@@ -391,6 +433,8 @@ export interface X509CertificateRevocationListEntryOptions {
    * The issuer of the revoked certificate, for indirect CRLs (RFC 5280 §5.3.3 `certificateIssuer`
    * CRL entry extension). Only meaningful when the CRL is an indirect CRL
    * (`issuingDistributionPoint.indirectCRL`).
+   *
+   * A string is used as-is and must already be escaped according to RFC 4514.
    */
   issuer?: string | X509CertificateIssuerAndSubjectOptions
 }
@@ -449,6 +493,8 @@ export interface X509CreateCertificateRevocationListOptions {
 
   /**
    * The issuer of the CRL. Must match the issuer certificate's subject.
+   *
+   * A string is used as-is and must already be escaped according to RFC 4514.
    */
   issuer: string | X509CertificateIssuerAndSubjectOptions
 

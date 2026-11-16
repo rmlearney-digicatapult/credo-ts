@@ -137,9 +137,72 @@ describe('X509Service revocation (end-to-end)', () => {
     // Even though the leaf would be revoked, disabled mode never fetches.
     const scope = mockCrl(LEAF_CRL_URL, await leafCrlBytes([leafSerial]))
 
-    const chain = await X509Service.validateCertificateChain(agentContext, { certificateChain })
+    const chain = await X509Service.validateCertificateChain(agentContext, {
+      certificateChain,
+      trustedCertificates: certificateChain.slice(-1),
+    })
     expect(chain).toHaveLength(3)
     expect(scope.isDone()).toBe(false)
+  })
+
+  describe('without revocationCheck configured', () => {
+    const config = () => agentContext.dependencyManager.resolve(X509ModuleConfig)
+
+    afterEach(() => {
+      config().setRevocationCheck({ mode: X509RevocationCheckMode.Disabled })
+    })
+
+    it('rejects the chain when the leaf is revoked', async () => {
+      config().setRevocationCheck(undefined)
+      mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
+      mockCrl(LEAF_CRL_URL, await leafCrlBytes([leafSerial]))
+
+      await expect(
+        X509Service.validateCertificateChain(agentContext, {
+          certificateChain,
+          trustedCertificates: certificateChain.slice(-1),
+        })
+      ).rejects.toThrow(X509ValidationError)
+    })
+
+    it('rejects the chain when the intermediate is revoked', async () => {
+      config().setRevocationCheck(undefined)
+      mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([intermediateSerial]))
+      mockCrl(LEAF_CRL_URL, await leafCrlBytes([]))
+
+      await expect(
+        X509Service.validateCertificateChain(agentContext, {
+          certificateChain,
+          trustedCertificates: certificateChain.slice(-1),
+        })
+      ).rejects.toThrow(X509ValidationError)
+    })
+
+    it('passes on network failure', async () => {
+      config().setRevocationCheck(undefined)
+      mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
+      const scope = mockCrlNetworkError(LEAF_CRL_URL)
+
+      const chain = await X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
+      expect(chain).toHaveLength(3)
+      expect(scope.isDone()).toBe(true)
+    })
+
+    it('rejects a revoked leaf when only other options are configured', async () => {
+      config().setRevocationCheck({ timeoutMs: 1000, mode: undefined })
+      mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
+      mockCrl(LEAF_CRL_URL, await leafCrlBytes([leafSerial]))
+
+      await expect(
+        X509Service.validateCertificateChain(agentContext, {
+          certificateChain,
+          trustedCertificates: certificateChain.slice(-1),
+        })
+      ).rejects.toThrow(X509ValidationError)
+    })
   })
 
   it('validates the chain when the leaf is not revoked (SoftFail)', async () => {
@@ -147,7 +210,10 @@ describe('X509Service revocation (end-to-end)', () => {
     mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
     const scope = mockCrl(LEAF_CRL_URL, await leafCrlBytes([]))
 
-    const chain = await X509Service.validateCertificateChain(agentContext, { certificateChain })
+    const chain = await X509Service.validateCertificateChain(agentContext, {
+      certificateChain,
+      trustedCertificates: certificateChain.slice(-1),
+    })
     expect(chain).toHaveLength(3)
     expect(scope.isDone()).toBe(true)
   })
@@ -159,12 +225,18 @@ describe('X509Service revocation (end-to-end)', () => {
     mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
     mockCrl(LEAF_CRL_URL, await leafCrlBytes([leafSerial]))
 
-    await expect(X509Service.validateCertificateChain(agentContext, { certificateChain })).rejects.toThrow(
-      X509ValidationError
-    )
+    await expect(
+      X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
+    ).rejects.toThrow(X509ValidationError)
 
     try {
-      await X509Service.validateCertificateChain(agentContext, { certificateChain })
+      await X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
     } catch (error) {
       expect(error).toBeInstanceOf(X509ValidationError)
       expect((error as X509ValidationError).validationResult.validations.revocationStatus?.isValid).toBe(false)
@@ -176,9 +248,12 @@ describe('X509Service revocation (end-to-end)', () => {
     mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
     mockCrl(LEAF_CRL_URL, await leafCrlBytes([leafSerial]))
 
-    await expect(X509Service.validateCertificateChain(agentContext, { certificateChain })).rejects.toThrow(
-      X509ValidationError
-    )
+    await expect(
+      X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
+    ).rejects.toThrow(X509ValidationError)
   })
 
   it('passes on network failure in SoftFail but fails in Require', async () => {
@@ -188,13 +263,19 @@ describe('X509Service revocation (end-to-end)', () => {
     mockCrlNetworkError(LEAF_CRL_URL, { times: 2 })
 
     setMode(X509RevocationCheckMode.SoftFail)
-    const chain = await X509Service.validateCertificateChain(agentContext, { certificateChain })
+    const chain = await X509Service.validateCertificateChain(agentContext, {
+      certificateChain,
+      trustedCertificates: certificateChain.slice(-1),
+    })
     expect(chain).toHaveLength(3)
 
     setMode(X509RevocationCheckMode.Require)
-    await expect(X509Service.validateCertificateChain(agentContext, { certificateChain })).rejects.toThrow(
-      X509ValidationError
-    )
+    await expect(
+      X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
+    ).rejects.toThrow(X509ValidationError)
   })
 
   it('checks the intermediate certificate when checkFullChain is enabled', async () => {
@@ -203,9 +284,12 @@ describe('X509Service revocation (end-to-end)', () => {
     // The intermediate is revoked in the root-issued CRL.
     mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([intermediateSerial]))
 
-    await expect(X509Service.validateCertificateChain(agentContext, { certificateChain })).rejects.toThrow(
-      X509ValidationError
-    )
+    await expect(
+      X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
+    ).rejects.toThrow(X509ValidationError)
   })
 
   it('validates the full chain when neither leaf nor intermediate are revoked', async () => {
@@ -213,7 +297,10 @@ describe('X509Service revocation (end-to-end)', () => {
     mockCrl(LEAF_CRL_URL, await leafCrlBytes([]))
     mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
 
-    const chain = await X509Service.validateCertificateChain(agentContext, { certificateChain })
+    const chain = await X509Service.validateCertificateChain(agentContext, {
+      certificateChain,
+      trustedCertificates: certificateChain.slice(-1),
+    })
     expect(chain).toHaveLength(3)
   })
 
@@ -223,8 +310,11 @@ describe('X509Service revocation (end-to-end)', () => {
     mockCrl(INTERMEDIATE_CRL_URL, await intermediateCrlBytes([]))
     mockCrl(LEAF_CRL_URL, await leafCrlBytes([], lastMonth, twoMonthsAgo))
 
-    await expect(X509Service.validateCertificateChain(agentContext, { certificateChain })).rejects.toThrow(
-      X509ValidationError
-    )
+    await expect(
+      X509Service.validateCertificateChain(agentContext, {
+        certificateChain,
+        trustedCertificates: certificateChain.slice(-1),
+      })
+    ).rejects.toThrow(X509ValidationError)
   })
 })

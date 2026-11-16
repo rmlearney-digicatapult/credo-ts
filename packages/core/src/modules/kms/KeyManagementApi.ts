@@ -33,7 +33,7 @@ import {
   type KmsOperation,
   type KmsRandomBytesOptions,
 } from './options'
-import { type WithBackend, zWithBackend } from './options/backend'
+import { type WithBackend, type WithCreateKeyBackend, zWithBackend, zWithCreateKeyBackend } from './options/backend'
 import {
   type KmsCreateKeyForSignatureAlgorithmOptions,
   type KmsCreateKeyOptions,
@@ -45,7 +45,11 @@ import {
 } from './options/KmsCreateKeyOptions'
 import { zKmsDecryptOptions } from './options/KmsDecryptOptions'
 import { zKmsDeleteKeyOptions } from './options/KmsDeleteKeyOptions'
-import { type KmsEncryptOptions, zKmsEncryptOptions } from './options/KmsEncryptOptions'
+import {
+  ecdhContentEncryptionAlgorithmsFor,
+  type KmsEncryptOptions,
+  zKmsEncryptOptions,
+} from './options/KmsEncryptOptions'
 import { zKmsGetPublicKeyOptions } from './options/KmsGetPublicKeyOptions'
 import { type KmsImportKeyReturn, zKmsImportKeyOptions } from './options/KmsImportKeyOptions'
 import { zKmsRandomBytesOptions } from './options/KmsRandomBytesOptions'
@@ -97,7 +101,7 @@ type KmsCanPerformArguments =
     ]
 
 @injectable()
-export class KeyManagementApi {
+export class KeyManagementApi<Backends extends KeyManagementService[] = KeyManagementService[]> {
   public constructor(
     private keyManagementConfig: KeyManagementModuleConfig,
     private agentContext: AgentContext
@@ -110,6 +114,13 @@ export class KeyManagementApi {
    * no backends are supported it returns an empty array
    */
   public supportedBackendsForOperation(operation: KmsOperation): string[] {
+    // Backends report what they can compute, the ECDH content encryption rules live in the encrypt and decrypt schemas
+    if ((operation.operation === 'encrypt' || operation.operation === 'decrypt') && operation.keyAgreement) {
+      const encryption = operation.operation === 'encrypt' ? operation.encryption : operation.decryption
+      const ecdhEncryptionAlgorithms = ecdhContentEncryptionAlgorithmsFor(operation.keyAgreement.algorithm)
+      if (ecdhEncryptionAlgorithms && !ecdhEncryptionAlgorithms.includes(encryption.algorithm)) return []
+    }
+
     const supportedBackends: string[] = []
 
     for (const kms of this.keyManagementConfig.backends) {
@@ -478,10 +489,10 @@ export class KeyManagementApi {
    * Create a key.
    */
   public async createKey<Type extends KmsCreateKeyType>(
-    options: WithBackend<KmsCreateKeyOptions<Type>>
+    options: WithCreateKeyBackend<KmsCreateKeyOptions<Type>, Backends>
   ): Promise<KmsCreateKeyReturn<Type>> {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
-      zWithBackend(zKmsCreateKeyOptions),
+      zWithCreateKeyBackend(zKmsCreateKeyOptions),
       options,
       'Invalid options provided to createKey method'
     )
@@ -505,10 +516,10 @@ export class KeyManagementApi {
    * Create a key.
    */
   public async createKeyForSignatureAlgorithm(
-    options: WithBackend<KmsCreateKeyForSignatureAlgorithmOptions>
+    options: WithCreateKeyBackend<KmsCreateKeyForSignatureAlgorithmOptions, Backends>
   ): Promise<KmsCreateKeyReturn<KmsCreateKeyTypeAsymmetric>> {
     const { backend, algorithm, ...kmsOptions } = zParseWithErrorHandling(
-      zWithBackend(zKmsCreateKeyForSignatureAlgorithmOptions),
+      zWithCreateKeyBackend(zKmsCreateKeyForSignatureAlgorithmOptions),
       options,
       'Invalid options provided to createKeyForSignatureAlgorithm method'
     )
@@ -532,7 +543,7 @@ export class KeyManagementApi {
   /**
    * Sign using a key.
    */
-  public async sign(options: WithBackend<KmsSignOptions>) {
+  public async sign(options: WithBackend<KmsSignOptions, Backends>) {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsSignOptions),
       options,
@@ -542,30 +553,31 @@ export class KeyManagementApi {
     const operation = {
       operation: 'sign',
       algorithm: options.algorithm,
+      keyId: options.keyId,
     } as const
 
     const kms = backend
       ? this.getKms(this.agentContext, backend, operation)
-      : (await this.getKmsForOperationAndKeyId(this.agentContext, options.keyId, operation)).kms
+      : await this.getKmsForKeyOperation(options.keyId, operation)
     return await kms.sign(this.agentContext, kmsOptions)
   }
 
   /**
    * Verify using a key.
    */
-  public async verify(options: WithBackend<KmsVerifyOptions>) {
+  public async verify(options: WithBackend<KmsVerifyOptions, Backends>) {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsVerifyOptions),
       options,
       'Invalid options provided to verify method'
     )
 
-    const operation = { operation: 'verify', algorithm: options.algorithm } as const
     const keyId = options.key.keyId
+    const operation = { operation: 'verify', algorithm: options.algorithm, keyId } as const
     const kms =
       backend || !keyId
         ? this.getKms(this.agentContext, backend, operation)
-        : (await this.getKmsForOperationAndKeyId(this.agentContext, keyId, operation)).kms
+        : await this.getKmsForKeyOperation(keyId, operation)
 
     return await kms.verify(this.agentContext, kmsOptions)
   }
@@ -573,23 +585,24 @@ export class KeyManagementApi {
   /**
    * Encrypt.
    */
-  public async encrypt(options: WithBackend<KmsEncryptOptions>) {
+  public async encrypt(options: WithBackend<KmsEncryptOptions, Backends>) {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsEncryptOptions),
       options,
       'Invalid options provided to encrypt method'
     )
 
+    const keyId = routingKeyId(kmsOptions.key)
     const operation = {
       operation: 'encrypt',
       encryption: options.encryption,
       keyAgreement: options.key.keyAgreement,
+      keyId,
     } as const
-    const keyId = routingKeyId(options.key)
     const kms =
       backend || !keyId
         ? this.getKms(this.agentContext, backend, operation)
-        : (await this.getKmsForOperationAndKeyId(this.agentContext, keyId, operation)).kms
+        : await this.getKmsForKeyOperation(keyId, operation)
 
     return await kms.encrypt(this.agentContext, kmsOptions)
   }
@@ -597,23 +610,24 @@ export class KeyManagementApi {
   /**
    * Decrypt.
    */
-  public async decrypt(options: WithBackend<KmsDecryptOptions>) {
+  public async decrypt(options: WithBackend<KmsDecryptOptions, Backends>) {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsDecryptOptions),
       options,
       'Invalid options provided to decrypt method'
     )
 
+    const keyId = routingKeyId(options.key)
     const operation = {
       operation: 'decrypt',
       decryption: options.decryption,
       keyAgreement: options.key.keyAgreement,
+      keyId,
     } as const
-    const keyId = routingKeyId(options.key)
     const kms =
       backend || !keyId
         ? this.getKms(this.agentContext, backend, operation)
-        : (await this.getKmsForOperationAndKeyId(this.agentContext, keyId, operation)).kms
+        : await this.getKmsForKeyOperation(keyId, operation)
 
     return await kms.decrypt(this.agentContext, kmsOptions)
   }
@@ -622,7 +636,7 @@ export class KeyManagementApi {
    * Import a key.
    */
   public async importKey<Jwk extends KmsJwkPrivate>(
-    options: WithBackend<KmsImportKeyOptions<Jwk>>
+    options: WithBackend<KmsImportKeyOptions<Jwk>, Backends>
   ): Promise<KmsImportKeyReturn<Jwk>> {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsImportKeyOptions),
@@ -646,9 +660,12 @@ export class KeyManagementApi {
   }
 
   /**
-   * Get a public key.
+   * Get a public key, with the backend that holds it. Pass that backend to the operations that
+   * follow on the same key, so the key is not looked up again to find its backend.
    */
-  public async getPublicKey(options: WithBackend<KmsGetPublicKeyOptions>) {
+  public async getPublicKey(
+    options: WithBackend<KmsGetPublicKeyOptions, Backends>
+  ): Promise<{ publicKey: KmsJwkPublic; backend: Backends[number]['backend'] }> {
     const { backend, keyId } = zParseWithErrorHandling(
       zWithBackend(zKmsGetPublicKeyOptions),
       options,
@@ -662,16 +679,18 @@ export class KeyManagementApi {
       if (!publicKey) {
         throw new KeyManagementKeyNotFoundError(keyId, [backend])
       }
+
+      return { publicKey, backend: kms.backend }
     }
 
-    const { publicKey } = await this.getKmsForOperationAndKeyId(this.agentContext, options.keyId)
-    return publicKey
+    const { publicKey, kms } = await this.getKmsForOperationAndKeyId(this.agentContext, keyId)
+    return { publicKey, backend: kms.backend }
   }
 
   /**
    * Delete a key.
    */
-  public async deleteKey(options: WithBackend<KmsDeleteKeyOptions>) {
+  public async deleteKey(options: WithBackend<KmsDeleteKeyOptions, Backends>) {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsDeleteKeyOptions),
       options,
@@ -688,7 +707,7 @@ export class KeyManagementApi {
   /**
    * Generate random bytes
    */
-  public randomBytes(options: WithBackend<KmsRandomBytesOptions>) {
+  public randomBytes(options: WithBackend<KmsRandomBytesOptions, Backends>) {
     const { backend, ...kmsOptions } = zParseWithErrorHandling(
       zWithBackend(zKmsRandomBytesOptions),
       options,
@@ -732,6 +751,19 @@ export class KeyManagementApi {
         ? `The key may exist in one of the key management services in which case the key management service does not support the ${getKmsOperationHumanDescription(operation)}`
         : undefined
     )
+  }
+
+  /**
+   * Get the kms to run an operation with a key. With one backend that supports the operation
+   * it can avoid expensive lookups of the key.
+   */
+  private async getKmsForKeyOperation(keyId: string, operation: KmsOperation) {
+    const supported = this.keyManagementConfig.backends.filter((kms) =>
+      kms.isOperationSupported(this.agentContext, operation)
+    )
+    if (supported.length === 1) return supported[0]
+
+    return (await this.getKmsForOperationAndKeyId(this.agentContext, keyId, operation)).kms
   }
 
   /**

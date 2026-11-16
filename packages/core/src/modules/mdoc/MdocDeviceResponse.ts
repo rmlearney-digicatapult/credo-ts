@@ -22,18 +22,21 @@ import { getMdocContext } from '../../crypto/contexts/mdocContext'
 import { TypedArrayEncoder } from './../../utils'
 import { PublicJwk } from '../kms'
 import { ClaimFormat } from '../vc'
-import type { Mdoc } from './Mdoc'
+import { X509Service } from '../x509'
+import { Mdoc } from './Mdoc'
 import { MdocError } from './MdocError'
 import type {
   MdocDeviceResponseDcqlQueryOptions,
   MdocDeviceResponseOptions,
   MdocDeviceResponsePresentationDefinitionOptions,
   MdocDeviceResponseVerifyOptions,
+  MdocDeviceResponseVerifyResult,
   MdocSessionTranscriptOptions,
 } from './MdocOptions'
 import { isMdocSupportedSignatureAlgorithm, mdocSupportedSignatureAlgorithms } from './mdocSupportedAlgs'
 import {
   assertMdocStatusListChainsMatchIssuanceChain,
+  assertMdocStatusSignerKeyPurpose,
   convertMdocTrustedCertificates,
   mdocTrustedCertificatesToRaw,
   nameSpacesRecordToDeviceNamespaces,
@@ -296,7 +299,10 @@ export class MdocDeviceResponse {
     )
   }
 
-  public async verify(agentContext: AgentContext, options: Omit<MdocDeviceResponseVerifyOptions, 'deviceResponse'>) {
+  public async verify(
+    agentContext: AgentContext,
+    options: Omit<MdocDeviceResponseVerifyOptions, 'deviceResponse'>
+  ): Promise<MdocDeviceResponseVerifyResult> {
     const mdocContext = getMdocContext(agentContext)
 
     defaultVerificationCallback({
@@ -305,9 +311,9 @@ export class MdocDeviceResponse {
       category: 'DOCUMENT_FORMAT',
     })
 
-    const trustedCertificates = convertMdocTrustedCertificates(options.trustedCertificates ?? [])
+    const trustedCertificates = convertMdocTrustedCertificates(agentContext, options.trustedCertificates ?? [])
 
-    const { documents: verificationResults } = await this.deviceResponse
+    const verificationResult = await this.deviceResponse
       .verify(
         {
           trustedCertificates: mdocTrustedCertificatesToRaw(trustedCertificates),
@@ -327,14 +333,34 @@ export class MdocDeviceResponse {
         })
       })
 
-    for (const { trustedIssuanceChain, trustedStatusListChain, trustedIdentifierListChain } of verificationResults) {
+    for (const {
+      trustedIssuanceChain,
+      trustedStatusListChain,
+      trustedIdentifierListChain,
+    } of verificationResult.documents) {
       if (!trustedIssuanceChain) continue
 
-      assertMdocStatusListChainsMatchIssuanceChain(trustedCertificates, {
+      assertMdocStatusListChainsMatchIssuanceChain(agentContext, trustedCertificates, {
         trustedIssuanceChain,
         trustedStatusListChain,
         trustedIdentifierListChain,
       })
+      assertMdocStatusSignerKeyPurpose(agentContext, {
+        trustedIssuanceChain,
+        trustedStatusListChain,
+        trustedIdentifierListChain,
+      })
+    }
+
+    return {
+      documents: verificationResult.documents.map(({ trustedIssuanceChain }, documentIndex) => ({
+        documentIndex,
+        // biome-ignore lint/style/noNonNullAssertion: the verification result has one entry per document
+        mdoc: new Mdoc(this.deviceResponse.documents![documentIndex].issuerSigned),
+        trustedIssuanceChain: trustedIssuanceChain?.map((certificate) =>
+          X509Service.parseCertificate(agentContext, { encodedCertificate: certificate })
+        ),
+      })),
     }
   }
 
@@ -347,7 +373,12 @@ export class MdocDeviceResponse {
     }
 
     if (options.type === 'openId4VpDraft18') {
-      return await SessionTranscript.forOid4VpDraft18(options, mdocContext)
+      // The draft 18 handover encodes the nonce as a `tstr`, so raw bytes must be valid UTF-8.
+      const mdocGeneratedNonce =
+        typeof options.mdocGeneratedNonce === 'string'
+          ? options.mdocGeneratedNonce
+          : TypedArrayEncoder.toUtf8String(options.mdocGeneratedNonce)
+      return await SessionTranscript.forOid4VpDraft18({ ...options, mdocGeneratedNonce }, mdocContext)
     }
 
     if (options.type === 'openId4Vp') {
