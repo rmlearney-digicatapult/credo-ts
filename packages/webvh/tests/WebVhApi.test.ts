@@ -66,7 +66,7 @@ describe('WebVhApi controller/witness bridges', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  test('supplies a KMS signer and verifier to upstream witness signing without fetch', async () => {
+  test('supplies a KMS signer to upstream witness signing without fetch', async () => {
     const fetch = vi.spyOn(context.config, 'fetch')
     const key = await createWebVhTestKey(context)
     const expected: WitnessProofFileEntry = { versionId: '1-candidate', proof: [] }
@@ -74,7 +74,7 @@ describe('WebVhApi controller/witness bridges', () => {
     const options = { trustedLog: [], candidateLog: [], witnessProofs: [], kmsKeyId: key.keyId }
     expect(await api.signWitnessProof(options)).toBe(expected)
     const input = vi.mocked(signWitnessProofEntry).mock.calls[0][0]
-    expect(input).toMatchObject({ trustedLog: [], candidateLog: [], witnessProofs: [], verifier: expect.any(Object) })
+    expect(input).toMatchObject({ trustedLog: [], candidateLog: [], witnessProofs: [] })
     expect(input.witnessSigner.getVerificationMethodId()).toBe(`did:key:${key.multikey}#${key.multikey}`)
     expect(fetch).not.toHaveBeenCalled()
   })

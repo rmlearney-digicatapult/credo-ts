@@ -67,7 +67,7 @@ An explicitly configured `WebVhDidResolver` and an existing registrar supporting
 
 #### Resolving DID-Linked Resources With the WebVH API
 
-`WebVhModule` exposes a context-scoped `WebVhApi` via `agent.modules.<key>`. It bridges Credo's storage, KMS, crypto adapters, and configured fetch to didwebvh-ts. `resolveResource()` dereferences a DID-linked resource URL (for example a schema or credential definition stored under a `did:webvh` DID). The API also exposes controller publication data and KMS-backed witness signing; ordinary DID lifecycle operations stay on `agent.dids`. Applications coordinate witness agents, collect approvals, and publish logs and proofs; the module does not orchestrate these workflows.
+`WebVhModule` exposes a context-scoped `WebVhApi` via `agent.modules.<key>`. It bridges Credo's storage, KMS signing and configured fetch to didwebvh-ts. DID logs and witness proofs are verified by the strict Ed25519 verifier built into didwebvh-ts, so Credo accepts the same logs as other did:webvh implementations. `resolveResource()` dereferences a DID-linked resource URL (for example a schema or credential definition stored under a `did:webvh` DID). The API also exposes controller publication data and KMS-backed witness signing; ordinary DID lifecycle operations stay on `agent.dids`. Applications coordinate witness agents, collect approvals, and publish logs and proofs; the module does not orchestrate these workflows.
 
 > Note: `webvh` is the module key used in these examples. You can choose another key and access the API through that same key.
 

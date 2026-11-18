@@ -16,6 +16,7 @@ import {
   createDID,
   type DeactivateDIDOptions,
   deactivateDID,
+  defaultVerifier,
   type UpdateDIDOptions,
   type UpdateDIDResult,
   updateDID,
@@ -33,7 +34,6 @@ import {
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
 } from './WebVhDidController'
-import { WebVhDidCrypto } from './WebVhDidCrypto'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
 export interface WebVhDidCreateOptions extends DidCreateOptions {
@@ -84,7 +84,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
         ...upstreamOptions,
         didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },
         signer,
-        verifier: new WebVhDidCrypto(agentContext),
+        verifier: defaultVerifier,
       })
       const didDocument = DidDocument.fromJSON(result.doc)
       const validatedKeys = await validateWebVhDocumentKeys(agentContext, didDocument, keys)
@@ -156,7 +156,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
           record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
           undefined,
         signer,
-        verifier: new WebVhDidCrypto(agentContext),
+        verifier: defaultVerifier,
         fetch: agentContext.config.fetch.bind(agentContext.config),
       })
       const didDocument = DidDocument.fromJSON(result.doc)

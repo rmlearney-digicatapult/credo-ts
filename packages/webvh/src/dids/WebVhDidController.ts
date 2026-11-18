@@ -15,6 +15,7 @@ import {
 import {
   type DIDLog,
   type DIDResolutionMeta,
+  defaultVerifier,
   parseDidWebvh,
   type Signer,
   type UpdateDIDOptions,
@@ -22,7 +23,6 @@ import {
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 
-import { WebVhDidCrypto } from './WebVhDidCrypto'
 import { WebVhDidCryptoSigner } from './WebVhDidCryptoSigner'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
@@ -93,7 +93,8 @@ export async function prepareWebVhDocumentWrite(
       record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
       undefined,
     signer,
-    verifier: new WebVhDidCrypto(agentContext),
+    // didwebvh-ts only defaults the verifier when resolving, not when writing.
+    verifier: defaultVerifier,
     fetch: agentContext.config.fetch.bind(agentContext.config),
   }
   return { record, controllerKeys, keys: validatedKeys, writerOptions }

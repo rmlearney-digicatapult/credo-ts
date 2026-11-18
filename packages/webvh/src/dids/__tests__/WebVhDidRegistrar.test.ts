@@ -10,6 +10,7 @@ import {
   createDID,
   type DIDLog,
   type DIDResolutionMeta,
+  defaultVerifier,
   deriveNextKeyHash,
   getWitnessRequirements,
   parseDidWebvh,
@@ -22,7 +23,6 @@ import { agentDependencies, getAgentConfig, getAgentContext } from '../../../../
 import { createWebVhTestKey, createWebVhTestOptions } from '../../../tests/utils'
 import { WebVhApi } from '../../WebVhApi'
 import { createWebVhControllerSigner, validateWebVhControllerKeys } from '../WebVhDidController'
-import { WebVhDidCrypto } from '../WebVhDidCrypto'
 import { WebVhDidRegistrar } from '../WebVhDidRegistrar'
 import { WebVhDidRecordMetadataKeys } from '../webVhTypes'
 
@@ -60,7 +60,7 @@ describe('WebVhDidRegistrar integration', () => {
     expect(didDocument.verificationMethod?.[0].id).toBe(`${did}#assertion-key`)
     expect(didDocument.assertionMethod).toEqual([`${did}#assertion-key`])
     const log = record.metadata.get<DIDLog>(WebVhDidRecordMetadataKeys.DidLog)
-    const resolved = await resolveDIDFromLog(log ?? [], { verifier: new WebVhDidCrypto(agentContext) })
+    const resolved = await resolveDIDFromLog(log ?? [])
     expect(resolved.didResolutionMetadata.error).toBeUndefined()
     expect(log?.[0].state).toEqual(didDocument.toJSON())
     expect(resolved.didDocument?.verificationMethod).toEqual(didDocument.toJSON().verificationMethod)
@@ -198,7 +198,7 @@ describe('WebVhDidRegistrar integration', () => {
       ...options.options,
       didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },
       signer,
-      verifier: new WebVhDidCrypto(agentContext),
+      verifier: defaultVerifier,
     })
     expect(getPublicKey).toHaveBeenCalledTimes(1)
     expect(sign).toHaveBeenCalledWith(

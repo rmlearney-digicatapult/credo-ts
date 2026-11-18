@@ -9,8 +9,7 @@ import {
 } from 'didwebvh-ts'
 
 /**
- * Complement to the WebVhDidCrypto class implementing the Signer interface.
- * Provides cryptographic operations for DID documents using Ed25519 keys.
+ * Signs did:webvh proofs with an Ed25519 key held in the agent's KMS.
  */
 export class WebVhDidCryptoSigner implements Signer {
   private publicKeyMultibase: string

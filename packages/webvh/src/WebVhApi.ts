@@ -32,7 +32,6 @@ import {
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
 } from './dids/WebVhDidController'
-import { WebVhDidCrypto } from './dids/WebVhDidCrypto'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './dids/webVhTypes'
 
 export type WebVhWitnessSigningOptions = Pick<
@@ -103,7 +102,6 @@ export class WebVhApi {
     try {
       const result = await resolveDIDFromLog(log, {
         ...options,
-        verifier: new WebVhDidCrypto(this.agentContext),
         fetch: this.agentContext.config.fetch.bind(this.agentContext.config),
       })
       return {
@@ -143,7 +141,7 @@ export class WebVhApi {
    */
   public async verifyWitnessProofs(options: WebVhWitnessVerificationOptions): Promise<WitnessVerificationResult> {
     try {
-      return await verifyWitnessProofs({ ...options, verifier: new WebVhDidCrypto(this.agentContext) })
+      return await verifyWitnessProofs(options)
     } catch (error) {
       throw new CredoError('Unable to verify WebVH witness proofs', { cause: error })
     }
@@ -210,7 +208,6 @@ export class WebVhApi {
         candidateLog: options.candidateLog,
         witnessProofs: options.witnessProofs,
         witnessSigner,
-        verifier: new WebVhDidCrypto(this.agentContext),
       })
     } catch (error) {
       throw new CredoError(`Unable to sign WebVH witness proof with KMS key '${options.kmsKeyId}'`, { cause: error })

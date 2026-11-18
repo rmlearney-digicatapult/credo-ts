@@ -4,8 +4,6 @@ import { DidDocument } from '@credo-ts/core'
 import { Resolver } from 'did-resolver'
 import { didWebvhToHttps, getResolver, parseDidWebvhUrl } from 'didwebvh-ts'
 
-import { WebVhDidCrypto } from './WebVhDidCrypto'
-
 export class WebVhDidResolver implements DidResolver {
   public readonly supportedMethods = ['webvh']
   public readonly allowsCaching = true
@@ -21,13 +19,9 @@ export class WebVhDidResolver implements DidResolver {
    */
   public async resolve(agentContext: AgentContext, did: string, parsed: ParsedDid): Promise<DidResolutionResult> {
     try {
-      const resolver = new Resolver(
-        getResolver({
-          verifier: new WebVhDidCrypto(agentContext),
-          fetch: agentContext.config.fetch.bind(agentContext.config),
-        }),
-        { cache: false }
-      )
+      const resolver = new Resolver(getResolver({ fetch: agentContext.config.fetch.bind(agentContext.config) }), {
+        cache: false,
+      })
       const result = await resolver.resolve(parsed.didUrl)
       return {
         didDocument: result.didDocument ? DidDocument.fromJSON(result.didDocument) : null,
