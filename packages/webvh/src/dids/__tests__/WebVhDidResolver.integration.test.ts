@@ -21,8 +21,11 @@ interface AttestedResourceContent {
 }
 
 // Mock the `didwebvh-ts` dependency so that `resolveDID` never performs a network call.
-vi.mock('didwebvh-ts', () => {
+vi.mock('didwebvh-ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('didwebvh-ts')>()
+
   return {
+    ...actual,
     resolveDID: vi.fn(async (did: string) => {
       return {
         didDocument: {
@@ -139,44 +142,6 @@ describe('WebVhDidResolver Integration Tests', () => {
     const { agentDependencies } = getAgentConfig('WebVhDidResolverIntegrationTest')
     agentContext = getAgentContext({
       agentConfig: new AgentConfig({}, { ...agentDependencies, fetch: fetch as typeof globalThis.fetch }),
-    })
-  })
-
-  describe('getBaseUrl', () => {
-    it('should correctly parse DID URL paths', () => {
-      const testCases = [
-        {
-          input:
-            'did:webvh:QmVG236sqSgkoi1iAXVZWGv6G6YgoQu6RujhogD4eeyoiY:identifier.me:demo:001/resources/zQmWsSADenC9oCxEbdKvi9KUJVJTbgZ8X75fZR5bzey1goo',
-          expected: 'https://identifier.me/demo/001/resources/zQmWsSADenC9oCxEbdKvi9KUJVJTbgZ8X75fZR5bzey1goo',
-        },
-        {
-          input:
-            'did:webvh:QmVG236sqSgkoi1iAXVZWGv6G6YgoQu6RujhogD4eeyoiY:identifier.me:demo:001/resources/zQmZ572t4RDpsH6G1kZFwpZQFJ7Wm7AB5X7oAq1BFX45SWj',
-          expected: 'https://identifier.me/demo/001/resources/zQmZ572t4RDpsH6G1kZFwpZQFJ7Wm7AB5X7oAq1BFX45SWj',
-        },
-      ]
-
-      for (const { input, expected } of testCases) {
-        const result = resolver.getBaseUrl(input)
-        expect(result).toBe(expected)
-      }
-    })
-
-    it('should handle DID without URL path', () => {
-      const input = 'did:webvh:QmVG236sqSgkoi1iAXVZWGv6G6YgoQu6RujhogD4eeyoiY:identifier.me:demo:001'
-      const expected = 'https://identifier.me/demo/001'
-
-      const result = resolver.getBaseUrl(input)
-      expect(result).toBe(expected)
-    })
-
-    it('should throw error for invalid DID format', () => {
-      const invalidDids = ['invalid:did', 'did:web:example.com', 'did:webvh:nocid', 'did:webvh:']
-
-      for (const invalidDid of invalidDids) {
-        expect(() => resolver.getBaseUrl(invalidDid)).toThrow()
-      }
     })
   })
 
@@ -322,6 +287,18 @@ describe('WebVhDidResolver Integration Tests', () => {
         }
       }
     }, 60000) // Longer timeout for parallel network calls
+
+    it('should return notFound when the resource endpoint responds with HTTP 404', async () => {
+      const missingResourceId =
+        'did:webvh:QmVG236sqSgkoi1iAXVZWGv6G6YgoQu6RujhogD4eeyoiY:identifier.me:demo:001/resources/not-found'
+
+      const result = await resolver.resolveResource(agentContext, missingResourceId)
+
+      expect(result).toMatchObject({
+        error: 'notFound',
+        message: expect.stringContaining('HTTP 404: Not Found'),
+      })
+    })
 
     it('should handle invalid resource IDs gracefully', async () => {
       const invalidResourceId = 'did:webvh:invalid:identifier.me:demo:001/resources/invalidhash'

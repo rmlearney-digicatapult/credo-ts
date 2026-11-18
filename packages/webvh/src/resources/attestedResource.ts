@@ -1,24 +1,8 @@
 import { IsStringOrStringArray } from '@credo-ts/core'
 import { Transform, Type } from 'class-transformer'
 import { IsArray, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested } from 'class-validator'
-import type { DIDLog, DIDLogEntry } from 'didwebvh-ts'
 
-/**
- * A single entry in a did:webvh DID log.
- * Structurally identical to `DIDLogEntry` from `didwebvh-ts`; re-exported here
- * as a stable Credo-level contract so consumers do not need to import directly
- * from the upstream library.
- */
-export type WebVhDidLogEntry = DIDLogEntry
-
-/**
- * An ordered array of `WebVhDidLogEntry` items representing the full history of
- * a did:webvh DID document.
- * Structurally identical to `DIDLog` from `didwebvh-ts`.
- */
-export type WebVhDidLog = DIDLog
-
-export type WebVhResourceIdParts = {
+type WebVhResourceIdParts = {
   did: string
   resourceId: string
 }
@@ -88,14 +72,6 @@ export class WebVhAttestedResource {
   public links?: WebVhAttestedResourceLink[]
 }
 
-export interface WebVhResourcePublisher<TResource = unknown, TOptions = unknown> {
-  publish(options: TOptions): Promise<TResource>
-}
-
-export interface WebVhResourceResolver<TResource = unknown> {
-  resolve(resourceId: string): Promise<TResource>
-}
-
 export function isWebVhAttestedResource(value: unknown): value is WebVhAttestedResource {
   if (!value || typeof value !== 'object') return false
 
@@ -126,22 +102,4 @@ export function parseResourceId(resourceId: string): WebVhResourceIdParts | null
     did: match[1],
     resourceId: match[2],
   }
-}
-
-export function getResourceType(resource: Pick<WebVhAttestedResource, 'metadata'>): string | undefined {
-  const resourceType = resource.metadata?.resourceType
-  return typeof resourceType === 'string' ? resourceType : undefined
-}
-
-/**
- * Returns the `metadata.resourceType` string from a webvh attested resource.
- * Throws if the field is absent or empty, ensuring callers receive a non-optional
- * string suitable for deterministic indexing, policy routing, or typed dispatch.
- */
-export function requireResourceType(resource: Pick<WebVhAttestedResource, 'metadata'>): string {
-  const resourceType = resource.metadata?.resourceType
-  if (typeof resourceType !== 'string' || resourceType.length === 0) {
-    throw new Error('WebVh attested resource is missing required metadata.resourceType')
-  }
-  return resourceType
 }

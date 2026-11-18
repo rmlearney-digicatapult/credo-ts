@@ -1,1 +1,6 @@
-export * from './attestedResource'
+export {
+  isWebVhAttestedResource,
+  WebVhAttestedResource,
+  WebVhAttestedResourceLink,
+  WebVhAttestedResourceProof,
+} from './attestedResource'

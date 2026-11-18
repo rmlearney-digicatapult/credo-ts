@@ -1,8 +1,8 @@
 import type { AgentContext, DidResolutionResult, DidResolver, ParsedDid } from '@credo-ts/core'
 
-import { DidDocument, parseDid } from '@credo-ts/core'
+import { DidDocument } from '@credo-ts/core'
 import { Resolver } from 'did-resolver'
-import { getResolver } from 'didwebvh-ts'
+import { didWebvhToHttps, getResolver, parseDidWebvhUrl } from 'didwebvh-ts'
 
 import { WebVhDidCrypto } from './WebVhDidCrypto'
 
@@ -49,26 +49,6 @@ export class WebVhDidResolver implements DidResolver {
   }
 
   /**
-   * Converts a WebVH DID resource URL to HTTPS, decoding its authority and preserving encoded path segments and query.
-   *
-   * @param id WebVH DID URL identifying a resource.
-   * @returns Corresponding HTTPS resource URL.
-   */
-  public getBaseUrl = (id: string) => {
-    const parsed = parseDid(id)
-    const [scid, domain, ...paths] = parsed.id.split(':')
-    if (parsed.method !== 'webvh' || !scid || !domain) {
-      throw new Error(`${id} is not a valid did:webvh identifier`)
-    }
-    const authority = new URL(`https://${decodeURIComponent(domain)}`)
-    if (authority.username || authority.password || authority.pathname !== '/' || authority.search || authority.hash) {
-      throw new Error(`${id} has an invalid resource host`)
-    }
-    const path = paths.map((segment) => encodeURIComponent(decodeURIComponent(segment))).join('/')
-    return `https://${authority.host}${path ? `/${path}` : ''}${parsed.path ?? ''}${parsed.query ? `?${parsed.query}` : ''}`
-  }
-
-  /**
    * Fetches a WebVH resource with the agent's fetch limits, returning dereferencing metadata or an explicit error.
    *
    * @param agentContext Agent context providing configured fetch and logging.
@@ -79,7 +59,8 @@ export class WebVhDidResolver implements DidResolver {
     try {
       agentContext.config.logger.debug(`Attempting to resolve resource: ${resourceUrl}`)
 
-      const httpsUrl = this.getBaseUrl(resourceUrl)
+      const parsed = parseDidWebvhUrl(resourceUrl)
+      const httpsUrl = `${didWebvhToHttps(parsed.did)}${parsed.path ?? ''}${parsed.query ? `?${parsed.query}` : ''}`
 
       agentContext.config.logger.debug(`Fetching resource from: ${httpsUrl}`)
 

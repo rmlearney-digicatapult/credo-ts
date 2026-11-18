@@ -34,7 +34,7 @@ import {
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
 } from './webVhDidController'
-import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhDidRecordMetadataTypes'
+import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
 export interface WebVhDidCreateOptions extends DidCreateOptions {
   method: 'webvh'
@@ -86,8 +86,14 @@ export class WebVhDidRegistrar implements DidRegistrar {
       if (existing) throw new CredoError(`A record with domain "${address}" already exists.`)
 
       const keys = await validateWebVhDocumentKeys(agentContext, options.didDocument, inputKeys)
-      const controllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
-      const signer = await selectWebVhControllerSigner(agentContext, updateKeys, controllerKeys)
+      const validatedControllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
+      const controllerKeys = validatedControllerKeys.mappings
+      const signer = await selectWebVhControllerSigner(
+        agentContext,
+        updateKeys,
+        controllerKeys,
+        validatedControllerKeys.resolvedKeys
+      )
       const result = await createDID({
         ...upstreamOptions,
         didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },

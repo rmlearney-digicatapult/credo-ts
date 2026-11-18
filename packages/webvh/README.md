@@ -150,7 +150,7 @@ To deactivate while pre-rotation is active, first perform a separate full-docume
 
 #### Resolution and Upgrade Compatibility
 
-This module requires Node.js >=22.12.0 and uses didwebvh-ts 3.1.0. Replace the old top-level `domain`/`path` create fields with nested `options.address`/`options.paths`.
+This module requires Node.js >=22.12.0 and uses didwebvh-ts 3.2.0. Replace the old top-level `domain`/`path` create fields with nested `options.address`/`options.paths`.
 
 Resolution preserves upstream document metadata, errors, messages, and `problemDetails`, including a valid historical document returned alongside an error in later history. `didDocumentMetadata.witness.threshold` is a string; writer/controller metadata keeps numeric thresholds. Always inspect `didResolutionMetadata.error`, even when a document is returned.
 
@@ -158,7 +158,7 @@ Valid published deactivation is not a resolution error: upstream returns `didDoc
 
 All DID resolution uses published logs through upstream's `getResolver` registry and `did-resolver` dispatcher, including its WebVH parser hook and version selectors such as `?versionNumber=1`, `?versionId=...`, and `?versionTime=...`. Newly created or updated DIDs must be published before `agent.dids.resolve` sees them; stored documents and proofs are not substituted for published data. Generic core caching/local-document shortcuts and upstream dispatcher caching are disabled. All network retrieval, including resources and witness proofs, uses the agent's configured fetch and `fetchLimits`; set `fetchLimits.maxResponseBytes` on the agent rather than a WebVH-specific resolver limit.
 
-Use `agent.dids.resolve(didUrl)` for resolution. Direct `WebVhDidResolver.resolve` calls require Credo's parsed DID URL as the third argument so the original `didUrl` can be forwarded to upstream's dispatcher. The adapter does not interpret version selectors itself. Resource URL conversion remains in the adapter until upstream exposes it publicly.
+Use `agent.dids.resolve(didUrl)` for resolution. Direct `WebVhDidResolver.resolve` calls require Credo's parsed DID URL as the third argument so the original `didUrl` can be forwarded to upstream's dispatcher. The adapter does not interpret version selectors itself. Credo's resource dereferencing uses didwebvh-ts's `parseDidWebvhUrl` and `didWebvhToHttps` helpers; applications needing standalone DID parsing or conversion can import `parseDidWebvh`, `parseDidWebvhUrl`, and `didWebvhToHttps` directly from `didwebvh-ts`.
 
 To validate an unpublished log explicitly, call `agent.modules.webvh.resolveDIDFromLog(log, { witnessProofs })`, passing any required proofs. It delegates log validation to upstream and returns a Credo document with upstream resolution metadata. Optional upstream version selectors are supported. This does not publish or store the log.
 

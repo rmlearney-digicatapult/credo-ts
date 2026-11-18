@@ -40,7 +40,7 @@ import {
 } from '@credo-ts/core'
 import { canonicalize } from 'json-canonicalize'
 import { getWebVhDidResolver } from '../../dids/getWebVhDidResolver'
-import { isWebVhAttestedResource, parseResourceId, WebVhAttestedResource } from '../../resources'
+import { isWebVhAttestedResource, parseResourceId, WebVhAttestedResource } from '../../resources/attestedResource'
 import { WebVhAnonCredsResource } from '../utils/transform'
 
 type DidResourceResolutionResult = {

@@ -1,5 +1,3 @@
-export { WebVhDidCrypto } from './WebVhDidCrypto'
-export { WebVhDidCryptoSigner } from './WebVhDidCryptoSigner'
 export {
   type WebVhDidCreateOptions,
   type WebVhDidDeactivateOptions,
@@ -7,8 +5,4 @@ export {
   type WebVhDidUpdateOptions,
 } from './WebVhDidRegistrar'
 export { WebVhDidResolver } from './WebVhDidResolver'
-export {
-  type WebVhDidRecordMetadata,
-  WebVhDidRecordMetadataKeys,
-  type WebVhUpdateKeyKmsKeyIds,
-} from './webVhDidRecordMetadataTypes'
+export type { WebVhDidLog, WebVhDidLogEntry } from './webVhTypes'

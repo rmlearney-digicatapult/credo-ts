@@ -1,13 +1,12 @@
 export {
   type WebVhDidCreateOptions,
   type WebVhDidDeactivateOptions,
-  WebVhDidRecordMetadataKeys,
+  type WebVhDidLog,
+  type WebVhDidLogEntry,
   WebVhDidRegistrar,
   WebVhDidResolver,
   type WebVhDidUpdateOptions,
-  type WebVhUpdateKeyKmsKeyIds,
 } from './dids'
-export * from './resources'
 export {
   WebVhApi,
   type WebVhDidMigrateOptions,

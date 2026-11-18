@@ -61,6 +61,22 @@ describe('getWebVhDidResolver', () => {
     expect(fetch).toHaveBeenCalledTimes(3)
   })
 
+  test('fetches ported and encoded resource URLs through the configured agent fetch', async () => {
+    const fetch = vi.fn(async () => new Response('resource', { headers: { 'content-type': 'text/plain' } }))
+    const config = new AgentConfig({}, { ...agentDependencies, fetch })
+    const resolver = new WebVhDidResolver()
+    const context = registerModules(new DidsModule({ resolvers: [resolver] }), config)
+    const api = new WebVhApi(context)
+    const resource =
+      'did:webvh:QmdmPkUdYzbr9txmx8gM2rsHPgr5L6m3gHjJGAf4vUFoGE:localhost.example.com%3A8443:some%20path/resources/a%20b?download=1#ignored'
+
+    await expect(api.resolveResource(resource)).resolves.toMatchObject({ content: 'resource' })
+    expect(fetch).toHaveBeenCalledWith(
+      'https://localhost.example.com:8443/some%20path/resources/a%20b?download=1',
+      expect.anything()
+    )
+  })
+
   test('returns the resolver the WebVhModule adds when the DidsModule has none', () => {
     const agentContext = registerModules(new DidsModule())
 

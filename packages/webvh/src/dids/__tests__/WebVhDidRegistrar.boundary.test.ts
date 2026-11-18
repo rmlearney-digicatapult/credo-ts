@@ -14,7 +14,7 @@ import { agentDependencies, getAgentConfig, getAgentContext } from '../../../../
 import { createWebVhTestOptions } from '../../../tests/utils'
 import { WebVhApi } from '../../WebVhApi'
 import { WebVhDidRegistrar } from '../WebVhDidRegistrar'
-import { WebVhDidRecordMetadataKeys } from '../webVhDidRecordMetadataTypes'
+import { WebVhDidRecordMetadataKeys } from '../webVhTypes'
 
 vi.mock('didwebvh-ts', { spy: true })
 

@@ -37,7 +37,7 @@ import { agentDependencies, getAgentConfig, getAgentContext } from '../../../../
 import { createWebVhTestOptions } from '../../../../tests/utils'
 import { WebVhDidRegistrar } from '../../../dids/WebVhDidRegistrar'
 import { WebVhDidResolver } from '../../../dids/WebVhDidResolver'
-import { WebVhDidRecordMetadataKeys } from '../../../dids/webVhDidRecordMetadataTypes'
+import { WebVhDidRecordMetadataKeys } from '../../../dids/webVhTypes'
 import { WebVhAnonCredsRegistry } from '../WebVhAnonCredsRegistry'
 
 const issuerId = 'did:webvh:QmXysm9EF3kPH4fdCWf48YqCzREgiAe5nFXG3RCXaCShFX:id.test-suite.app:credo:01'

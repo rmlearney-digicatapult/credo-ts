@@ -32,7 +32,7 @@ import {
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
 } from './dids/webVhDidController'
-import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './dids/webVhDidRecordMetadataTypes'
+import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './dids/webVhTypes'
 
 export type WebVhWitnessSigningOptions = Pick<
   WitnessSigningOptions,

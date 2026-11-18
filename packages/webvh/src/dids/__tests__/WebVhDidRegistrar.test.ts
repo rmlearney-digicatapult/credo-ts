@@ -4,6 +4,7 @@ import {
   DidRepository,
   InjectionSymbols,
   InMemoryLruCache,
+  Kms,
 } from '@credo-ts/core'
 import {
   type DIDLog,
@@ -20,7 +21,8 @@ import { createWebVhTestKey, createWebVhTestOptions } from '../../../tests/utils
 import { WebVhApi } from '../../WebVhApi'
 import { WebVhDidCrypto } from '../WebVhDidCrypto'
 import { WebVhDidRegistrar } from '../WebVhDidRegistrar'
-import { WebVhDidRecordMetadataKeys } from '../webVhDidRecordMetadataTypes'
+import { selectWebVhControllerSigner, validateWebVhControllerKeys } from '../webVhDidController'
+import { WebVhDidRecordMetadataKeys } from '../webVhTypes'
 
 describe('WebVhDidRegistrar integration', () => {
   let registrar: WebVhDidRegistrar
@@ -144,6 +146,22 @@ describe('WebVhDidRegistrar integration', () => {
       state: 'failed',
       reason: expect.stringContaining('does not match KMS key'),
     })
+  })
+
+  test('reuses validated controller key material when selecting a signer', async () => {
+    const options = await createWebVhTestOptions(agentContext)
+    const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
+    const getPublicKey = vi.spyOn(kms, 'getPublicKey')
+    const validated = await validateWebVhControllerKeys(agentContext, options.options.updateKeyKmsKeyIds)
+
+    await selectWebVhControllerSigner(
+      agentContext,
+      options.options.updateKeys,
+      validated.mappings,
+      validated.resolvedKeys
+    )
+
+    expect(getPublicKey).toHaveBeenCalledTimes(1)
   })
 
   test('maps typed missing KMS keys to notFound', async () => {
