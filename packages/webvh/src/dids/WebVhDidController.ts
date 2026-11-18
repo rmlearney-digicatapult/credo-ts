@@ -27,8 +27,9 @@ import { WebVhDidCryptoSigner } from './WebVhDidCryptoSigner'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
 export function getWebVhDomainTag(did: string) {
-  const { domainComponent, pathSegments } = parseDidWebvh(did)
-  return [domainComponent, ...pathSegments.map((segment) => encodeURIComponent(segment))].join(':')
+  const { scid } = parseDidWebvh(did)
+  // Re-encoding decoded segments could differ from the DID's canonical encoding, so keep the DID's own text.
+  return did.slice(`did:webvh:${scid}:`.length)
 }
 
 export async function getWebVhDidRecord(agentContext: AgentContext, did: string) {

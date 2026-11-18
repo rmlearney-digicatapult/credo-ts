@@ -40,7 +40,11 @@ import {
 import { parseDidWebvhUrl } from 'didwebvh-ts'
 import { canonicalize } from 'json-canonicalize'
 import { getWebVhDidResolver } from '../../dids/getWebVhDidResolver'
-import { type WebVhAttestedResource, zWebVhAttestedResource } from '../../resources/attestedResource'
+import {
+  type WebVhAttestedResource,
+  type WebVhAttestedResourceInput,
+  zWebVhAttestedResource,
+} from '../../resources/attestedResource'
 import { parseWebVhAnonCredsContent } from '../utils/transform'
 
 type DidResourceResolutionResult = {
@@ -265,6 +269,8 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
           { cause }
         )
       }
+      // Parsing normalises fields such as `type`, so the proof and digest are checked on the resource as fetched.
+      const signedResource = resolutionResult.content as WebVhAttestedResourceInput
 
       // --- Attested Resource Validation steps ---
 
@@ -282,7 +288,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       }
 
       // 2. DataIntegrityProof Verification
-      const verified = await this.verifyProof(agentContext, resourceObject)
+      const verified = await this.verifyProof(agentContext, signedResource)
       if (!verified) {
         agentContext.config.logger.trace('Resolved resource proof is invalid.')
         throw new CredoError('Resolved resource proof is invalid.')
@@ -300,7 +306,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       if (resourceObject.id !== resourceId) {
         throw new CredoError(`ID mismatch ${resourceObject.id} != ${resourceId}`)
       }
-      const digestMultibase = this._digestMultibase(canonicalize(resourceObject.content))
+      const digestMultibase = this._digestMultibase(canonicalize(signedResource.content))
 
       if (digestMultibase !== expectedMultibaseHash) {
         throw new CredoError(
@@ -715,7 +721,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
     }
   }
 
-  public async verifyProof(agentContext: AgentContext, attestedResource: WebVhAttestedResource): Promise<boolean> {
+  public async verifyProof(agentContext: AgentContext, attestedResource: WebVhAttestedResourceInput): Promise<boolean> {
     const dataIntegrity = agentContext.dependencyManager.resolve(W3cDataIntegrityApi)
     try {
       const verificationResult = await dataIntegrity.verifyProof(

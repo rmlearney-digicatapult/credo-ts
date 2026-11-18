@@ -228,6 +228,23 @@ describe('WebVhAnonCredsRegistry assertionMethod signing', () => {
     expect(schemaResponse.schema).toEqual(schema)
   })
 
+  it('verifies a resource signed with a string type as it was fetched', async () => {
+    const { registrationMetadata, schemaState } = await registry.registerSchema(agentContext, { schema })
+    if (schemaState.state !== 'finished') throw new Error(`registerSchema did not finish: ${schemaState.state}`)
+    const { proof: _, ...resource } = JSON.parse(JSON.stringify(registrationMetadata.attestedResource))
+    const unsecuredDocument = { ...resource, type: 'AttestedResource' }
+    const proof = await registry.createProof(agentContext, unsecuredDocument, assertionVerificationMethodId)
+    resolveResource.mockResolvedValue({
+      content: JSON.parse(JSON.stringify({ ...unsecuredDocument, proof })),
+      dereferencingMetadata: { contentType: 'application/json' },
+    })
+
+    const schemaResponse = await registry.getSchema(agentContext, schemaState.schemaId)
+
+    expect(schemaResponse.resolutionMetadata.error).toBeUndefined()
+    expect(schemaResponse.schema).toEqual(schema)
+  })
+
   it('rejects an explicit verification method that is not authorized for assertionMethod', async () => {
     await expect(
       registry.registerSchema(agentContext, {

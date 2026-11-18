@@ -76,6 +76,13 @@ describe('WebVhDidRegistrar integration', () => {
     expect(record.getTag('domain')).toBe('alice.example.com%3A8443:credo:01')
   })
 
+  test('tags the location with the encoding used in the DID', async () => {
+    const { did } = await create(await createWebVhTestOptions(agentContext, 'alice.example.com', ['a!b']))
+    expect(did).toMatch(/:alice\.example\.com:a%21b$/)
+    const record = await repository.getSingleByQuery(agentContext, { did })
+    expect(record.getTag('domain')).toBe('alice.example.com:a%21b')
+  })
+
   test.each([
     {
       name: 'a port and a numeric path',

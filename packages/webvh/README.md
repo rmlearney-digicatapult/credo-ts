@@ -242,7 +242,7 @@ const webVhDidRecords = await didRepository.findByQuery(agentContext, {
 })
 ```
 
-The `domain` tag uses the returned DID's encoded domain component and colon-separated encoded location paths. For example, port 8443 is tagged as `issuer.example.com%3A8443`, while a path segment `8443` is tagged as `issuer.example.com:8443`; embedded colons in paths remain `%3A`. This tag is non-unique: different SCIDs may share the same location. Credo does not enforce publication-location uniqueness.
+The `domain` tag is the part of the returned DID after its SCID, encoded exactly as in the DID. For example, port 8443 is tagged as `issuer.example.com%3A8443`, while a path segment `8443` is tagged as `issuer.example.com:8443`; embedded colons in paths remain `%3A`. This tag is non-unique: different SCIDs may share the same location. Credo does not enforce publication-location uniqueness.
 
 ### Registering AnonCreds Objects
 

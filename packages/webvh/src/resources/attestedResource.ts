@@ -32,6 +32,7 @@ export const zWebVhAttestedResource = z
     type: Array.isArray(type) ? type : [type],
   }))
 export type WebVhAttestedResource = z.output<typeof zWebVhAttestedResource>
+export type WebVhAttestedResourceInput = z.input<typeof zWebVhAttestedResource>
 
 export function isWebVhAttestedResource(value: unknown): value is WebVhAttestedResource {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
