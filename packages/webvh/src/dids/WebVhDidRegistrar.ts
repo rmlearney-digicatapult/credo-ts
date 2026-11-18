@@ -22,14 +22,13 @@ import {
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 import {
-  authorizedUpdateKeys,
+  createWebVhControllerSigner,
   failedWebVhRegistration,
   getWebVhControllerMetadata,
   getWebVhDidLog,
   getWebVhDidRecord,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
-  selectWebVhControllerSigner,
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
 } from './WebVhDidController'
@@ -73,8 +72,8 @@ export class WebVhDidRegistrar implements DidRegistrar {
       this.assertCompleteDocument(options.didDocument)
       const { keys: inputKeys, updateKeyKmsKeyIds, ...upstreamOptions } = options.options
       const { address, paths, updateKeys } = upstreamOptions
-      if (!Array.isArray(inputKeys) || !updateKeyKmsKeyIds || !Array.isArray(updateKeys)) {
-        throw new CredoError('Create options require keys, updateKeyKmsKeyIds, and updateKeys')
+      if (!Array.isArray(inputKeys) || !updateKeyKmsKeyIds) {
+        throw new CredoError('Create options require keys and updateKeyKmsKeyIds')
       }
       const domain = [address, ...(paths ?? [])].join(':')
       const repository = agentContext.dependencyManager.resolve(DidRepository)
@@ -86,14 +85,8 @@ export class WebVhDidRegistrar implements DidRegistrar {
       if (existing) throw new CredoError(`A record with domain "${address}" already exists.`)
 
       const keys = await validateWebVhDocumentKeys(agentContext, options.didDocument, inputKeys)
-      const validatedControllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
-      const controllerKeys = validatedControllerKeys.mappings
-      const signer = await selectWebVhControllerSigner(
-        agentContext,
-        updateKeys,
-        controllerKeys,
-        validatedControllerKeys.resolvedKeys
-      )
+      const controllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
+      const signer = createWebVhControllerSigner(agentContext, updateKeys, controllerKeys)
       const result = await createDID({
         ...upstreamOptions,
         didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },
@@ -169,10 +162,9 @@ export class WebVhDidRegistrar implements DidRegistrar {
     try {
       const record = await getWebVhDidRecord(agentContext, options.did)
       const state = getWebVhControllerMetadata(record)
-      const updateKeys = authorizedUpdateKeys(state)
       const controllerKeys =
         record.metadata.get<WebVhUpdateKeyKmsKeyIds>(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds) ?? {}
-      const signer = await selectWebVhControllerSigner(agentContext, updateKeys, controllerKeys)
+      const signer = createWebVhControllerSigner(agentContext, state.updateKeys, controllerKeys)
       const result = await deactivateDID({
         log: getWebVhDidLog(record),
         updateKeys: options.options?.updateKeys,

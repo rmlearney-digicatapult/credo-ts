@@ -148,6 +148,8 @@ Every update requires a complete `DidDocument`; partial documents, omitted docum
 
 To deactivate while pre-rotation is active, first perform a separate full-document update with the pre-committed `updateKeys`, their KMS mappings, and `nextKeyHashes: []`, then call `agent.dids.deactivate({ did: publicDid })`. For witnessed DIDs, collect and publish the intervening update's witness proofs before deactivating. Credo never performs that sequence automatically.
 
+Controller signer selection is deferred until didwebvh-ts requests the proof ID, preserving upstream errors for deactivated DIDs and invalid pre-rotation operations. The selected key's fingerprint determines the proof ID synchronously; KMS access occurs during signing and checks that the actual key matches that fingerprint. Supplied KMS mappings are still validated before use.
+
 #### Resolution and Upgrade Compatibility
 
 This module requires Node.js >=22.12.0 and uses didwebvh-ts 3.2.0. Replace the old top-level `domain`/`path` create fields with nested `options.address`/`options.paths`.

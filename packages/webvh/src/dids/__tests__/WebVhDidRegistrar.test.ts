@@ -7,6 +7,7 @@ import {
   Kms,
 } from '@credo-ts/core'
 import {
+  createDID,
   type DIDLog,
   type DIDResolutionMeta,
   deriveNextKeyHash,
@@ -19,7 +20,7 @@ import { InMemoryStorageService } from '../../../../../tests/InMemoryStorageServ
 import { agentDependencies, getAgentConfig, getAgentContext } from '../../../../core/tests/helpers'
 import { createWebVhTestKey, createWebVhTestOptions } from '../../../tests/utils'
 import { WebVhApi } from '../../WebVhApi'
-import { selectWebVhControllerSigner, validateWebVhControllerKeys } from '../WebVhDidController'
+import { createWebVhControllerSigner, validateWebVhControllerKeys } from '../WebVhDidController'
 import { WebVhDidCrypto } from '../WebVhDidCrypto'
 import { WebVhDidRegistrar } from '../WebVhDidRegistrar'
 import { WebVhDidRecordMetadataKeys } from '../webVhTypes'
@@ -148,20 +149,60 @@ describe('WebVhDidRegistrar integration', () => {
     })
   })
 
-  test('reuses validated controller key material when selecting a signer', async () => {
+  test('defers KMS access until signing without re-reading validated controller keys', async () => {
     const options = await createWebVhTestOptions(agentContext)
     const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
     const getPublicKey = vi.spyOn(kms, 'getPublicKey')
     const validated = await validateWebVhControllerKeys(agentContext, options.options.updateKeyKmsKeyIds)
 
-    await selectWebVhControllerSigner(
-      agentContext,
-      options.options.updateKeys,
-      validated.mappings,
-      validated.resolvedKeys
-    )
+    const sign = vi.spyOn(kms, 'sign')
+    const signer = createWebVhControllerSigner(agentContext, options.options.updateKeys, validated)
 
+    expect(signer.getVerificationMethodId()).toBe(
+      `did:key:${options.options.updateKeys[0]}#${options.options.updateKeys[0]}`
+    )
     expect(getPublicKey).toHaveBeenCalledTimes(1)
+    expect(sign).not.toHaveBeenCalled()
+
+    await createDID({
+      ...options.options,
+      didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },
+      signer,
+      verifier: new WebVhDidCrypto(agentContext),
+    })
+    expect(getPublicKey).toHaveBeenCalledTimes(1)
+    expect(sign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backend: options.options.updateKeyKmsKeyIds[options.options.updateKeys[0]].kmsBackend,
+        expectedPublicJwk: Kms.PublicJwk.fromFingerprint(options.options.updateKeys[0]).toJson(),
+      })
+    )
+  })
+
+  test.each(['missing', 'mismatched'] as const)('rejects a %s stored controller KMS key when signing', async (kind) => {
+    const options = await createWebVhTestOptions(agentContext)
+    const { did, didDocument } = await create(options)
+    const replacementKey = await createWebVhTestKey(agentContext)
+    const record = await repository.getSingleByQuery(agentContext, { did })
+    record.metadata.set(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds, {
+      [options.options.updateKeys[0]]: {
+        keyId: kind === 'missing' ? 'missing-key' : replacementKey.keyId,
+        kmsBackend: replacementKey.kmsBackend,
+      },
+    })
+    await repository.update(agentContext, record)
+
+    const result = await registrar.update(agentContext, { did, didDocument })
+    expect(result.didState).toMatchObject({
+      state: 'failed',
+      reason:
+        kind === 'missing'
+          ? expect.stringMatching(/^notFound:/)
+          : expect.stringContaining('does not match the expected'),
+    })
+    expect(
+      (await repository.getSingleByQuery(agentContext, { did })).metadata.get<DIDLog>(WebVhDidRecordMetadataKeys.DidLog)
+    ).toHaveLength(1)
   })
 
   test('maps typed missing KMS keys to notFound', async () => {
@@ -218,7 +259,7 @@ describe('WebVhDidRegistrar integration', () => {
       did,
       didDocument,
       options: {
-        updateKeys: [next.multikey],
+        updateKeys: [`did:key:${next.multikey}#${next.multikey}`],
         updateKeyKmsKeyIds: { [next.multikey]: { keyId: next.keyId, kmsBackend: next.kmsBackend } },
       },
     })
@@ -241,17 +282,28 @@ describe('WebVhDidRegistrar integration', () => {
     const next = await createWebVhTestKey(agentContext)
     options.options.nextKeyHashes = [await deriveNextKeyHash(next.multikey)]
     const { did, didDocument } = await create(options)
+    const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
+    const sign = vi.spyOn(kms, 'sign')
+    const getPublicKey = vi.spyOn(kms, 'getPublicKey')
     const premature = await registrar.deactivate(agentContext, { did })
     expect(premature.didState).toMatchObject({
       state: 'failed',
-      reason: expect.stringContaining('pre-rotation is active'),
+      reason:
+        'unknownError: Cannot deactivate while pre-rotation is active; call updateDID with nextKeyHashes: [] first, then deactivate',
     })
+    const missingKeys = await registrar.update(agentContext, { did, didDocument })
+    expect(missingKeys.didState).toMatchObject({
+      state: 'failed',
+      reason: 'unknownError: updateKeys must be provided while pre-rotation is active',
+    })
+    expect(sign).not.toHaveBeenCalled()
+    expect(getPublicKey).not.toHaveBeenCalled()
 
     const update = await registrar.update(agentContext, {
       did,
       didDocument,
       options: {
-        updateKeys: [next.multikey],
+        updateKeys: [`did:key:${next.multikey}#${next.multikey}`],
         nextKeyHashes: [],
         updateKeyKmsKeyIds: { [next.multikey]: { keyId: next.keyId, kmsBackend: next.kmsBackend } },
       },
@@ -270,6 +322,40 @@ describe('WebVhDidRegistrar integration', () => {
     expect(record.metadata.get<DIDResolutionMeta>(WebVhDidRecordMetadataKeys.ControllerMetadata)?.updateKeys).toEqual(
       []
     )
+  })
+
+  test('preserves upstream errors for operations on a deactivated DID without accessing controller keys', async () => {
+    const { did, didDocument } = await create()
+    expect((await registrar.deactivate(agentContext, { did })).didState.state).toBe('finished')
+    const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
+    const sign = vi.spyOn(kms, 'sign')
+    const getPublicKey = vi.spyOn(kms, 'getPublicKey')
+
+    expect((await registrar.update(agentContext, { did, didDocument })).didState).toMatchObject({
+      state: 'failed',
+      reason: 'unknownError: Cannot update deactivated DID',
+    })
+    expect((await registrar.deactivate(agentContext, { did })).didState).toMatchObject({
+      state: 'failed',
+      reason: 'unknownError: DID already deactivated',
+    })
+    expect(sign).not.toHaveBeenCalled()
+    expect(getPublicKey).not.toHaveBeenCalled()
+    const record = await repository.getSingleByQuery(agentContext, { did })
+    expect(record.metadata.get<DIDLog>(WebVhDidRecordMetadataKeys.DidLog)).toHaveLength(2)
+  })
+
+  test('preserves upstream validation of did:key fragments before selecting a controller signer', async () => {
+    const options = await createWebVhTestOptions(agentContext)
+    options.options.updateKeys = [`did:key:${options.options.updateKeys[0]}#wrong`]
+    const result = await registrar.create(agentContext, options)
+    expect(result.didState).toMatchObject({
+      state: 'failed',
+      reason: expect.stringContaining(
+        'Invalid updateKeys[0]: did:key verificationMethod fragment must equal body multibase'
+      ),
+    })
+    expect(await repository.getAll(agentContext)).toHaveLength(0)
   })
 
   test('bridges a witnessed create and update with application-collected proofs, without witness requests', async () => {
@@ -331,6 +417,13 @@ describe('WebVhDidRegistrar integration', () => {
     const record = await repository.getSingleByQuery(agentContext, { did: result.didState.did })
     expect(record.didDocument?.id).toBe(result.didState.did)
     expect(await repository.findSingleByQuery(agentContext, { did })).toBeNull()
+  })
+
+  test('reports empty authorized update keys only when upstream requests the proof ID', () => {
+    const signer = createWebVhControllerSigner(agentContext, [], {})
+    expect(() => signer.getVerificationMethodId()).toThrow(
+      'unknownError: no authorized controller update keys remain to sign this operation'
+    )
   })
 
   test('missing records and missing controller mappings remain distinct failures', async () => {
