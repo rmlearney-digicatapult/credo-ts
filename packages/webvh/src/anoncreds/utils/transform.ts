@@ -1,6 +1,6 @@
 import { JsonTransformer } from '@credo-ts/core'
 import { Expose, Transform, Type } from 'class-transformer'
-import { ArrayMinSize, IsArray, IsNumber, IsObject, IsOptional, IsString } from 'class-validator'
+import { ArrayMinSize, IsArray, IsObject, IsOptional, IsString } from 'class-validator'
 import { WebVhAttestedResource } from '../../resources'
 
 export class WebVhSchemaContent {
@@ -60,24 +60,6 @@ export class WebVhRevRegDefContent {
   }
 }
 
-export class WebVhRevocationStatusListContent {
-  @IsString()
-  public issuerId!: string
-
-  @IsString()
-  public revRegDefId!: string
-
-  @IsArray()
-  @IsNumber({}, { each: true })
-  public revocationList!: number[]
-
-  @IsString()
-  public currentAccumulator!: string
-
-  @IsNumber()
-  public timestamp!: number
-}
-
 export class WebVhAnonCredsResource extends WebVhAttestedResource {
   @Expose()
   @Transform(({ value }) => {
@@ -92,5 +74,5 @@ export class WebVhAnonCredsResource extends WebVhAttestedResource {
     }
     return value
   })
-  public content!: WebVhSchemaContent | WebVhCredDefContent | WebVhRevRegDefContent | WebVhRevocationStatusListContent
+  public content!: WebVhSchemaContent | WebVhCredDefContent | WebVhRevRegDefContent | Record<string, unknown>
 }
