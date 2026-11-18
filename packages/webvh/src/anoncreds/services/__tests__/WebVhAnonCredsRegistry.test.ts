@@ -373,7 +373,7 @@ describe('WebVhAnonCredsRegistry', () => {
         schemaId,
         resolutionMetadata: {
           error: 'invalid',
-          message: expect.stringContaining('not a valid schema'), // Updated message check
+          message: expect.stringContaining('attrNames'),
         },
         schemaMetadata: {},
       })

@@ -1,52 +1,50 @@
+import type { ZodType } from 'zod'
 import { zWebVhAttestedResource } from '../../../resources'
-import { parseWebVhAnonCredsContent } from '../../utils/transform'
+import {
+  zWebVhCredDefContent,
+  zWebVhRevRegDefContent,
+  zWebVhSchemaContent,
+  zWebVhStatusListContent,
+} from '../../utils/transform'
 
-import { mockCredDefResource, mockSchemaResource } from './mock-resources'
+import {
+  mockCredDefResource,
+  mockRegRevEntryResource,
+  mockRevRegDefResource,
+  mockSchemaResource,
+} from './mock-resources'
 
-function parseResource(json: unknown) {
+function parseResource<Content>(json: unknown, contentSchema: ZodType<Content>) {
   const resource = zWebVhAttestedResource.parse(json)
-  return { ...resource, content: parseWebVhAnonCredsContent(resource.content) }
+  return { ...resource, content: contentSchema.parse(resource.content) }
 }
 
 describe('WebVhTransform', () => {
   it('should correctly transform a schema resource', () => {
-    const resource = parseResource(mockSchemaResource)
+    const resource = parseResource(mockSchemaResource, zWebVhSchemaContent)
 
     expect(resource['@context']).toContain('https://opsecid.github.io/attested-resource/v1')
     expect(resource.type).toEqual(['AttestedResource'])
-
-    // Type guard to check if content is a schema
-    if ('attrNames' in resource.content) {
-      expect(resource.content.name).toBe(mockSchemaResource.content.name)
-      expect(resource.content.version).toBe(mockSchemaResource.content.version)
-      expect(Array.isArray(resource.content.attrNames)).toBe(true)
-      expect(resource.content.attrNames).toContain(mockSchemaResource.content.attrNames[0])
-    } else {
-      throw new Error('Content should be a schema')
-    }
+    expect(resource.content.name).toBe(mockSchemaResource.content.name)
+    expect(resource.content.version).toBe(mockSchemaResource.content.version)
+    expect(resource.content.attrNames).toContain(mockSchemaResource.content.attrNames[0])
   })
 
   it('should correctly transform a credential definition resource', () => {
-    const resource = parseResource(mockCredDefResource)
+    const resource = parseResource(mockCredDefResource, zWebVhCredDefContent)
 
     expect(resource['@context']).toContain('https://identity.foundation/did-attested-resources/context/v0.1')
     expect(resource.type).toEqual(['AttestedResource'])
-
-    // Type guard to check if content is a credential definition
-    if ('schemaId' in resource.content) {
-      expect(resource.content.type).toBe(mockCredDefResource.content.type)
-      expect(resource.content.tag).toBe(mockCredDefResource.content.tag)
-      expect(resource.content.schemaId).toBe(mockSchemaResource.id)
-    } else {
-      throw new Error('Content should be a credential definition')
-    }
+    expect(resource.content.type).toBe(mockCredDefResource.content.type)
+    expect(resource.content.tag).toBe(mockCredDefResource.content.tag)
+    expect(resource.content.schemaId).toBe(mockSchemaResource.id)
   })
 
   it('preserves extra properties in transformed content', () => {
-    const resource = parseResource({
-      ...mockSchemaResource,
-      content: { ...mockSchemaResource.content, extension: { retained: true } },
-    })
+    const resource = parseResource(
+      { ...mockSchemaResource, content: { ...mockSchemaResource.content, extension: { retained: true } } },
+      zWebVhSchemaContent
+    )
 
     expect(resource.content).toHaveProperty('extension', { retained: true })
   })
@@ -57,37 +55,24 @@ describe('WebVhTransform', () => {
       content: { ...mockSchemaResource.content, attrNames: [1] },
     }
 
-    expect(() => parseResource(invalidResource)).toThrow()
+    expect(() => parseResource(invalidResource, zWebVhSchemaContent)).toThrow()
   })
 
   it('rejects schema content without an issuerId', () => {
     const { issuerId: _, ...content } = mockSchemaResource.content
 
-    expect(() => parseResource({ ...mockSchemaResource, content })).toThrow()
+    expect(() => parseResource({ ...mockSchemaResource, content }, zWebVhSchemaContent)).toThrow()
   })
 
   it('transforms revocation registry definition content', () => {
-    const content = {
-      issuerId: mockSchemaResource.content.issuerId,
-      revocDefType: 'CL_ACCUM',
-      credDefId: 'cred-def-id',
-      tag: 'default',
-      value: {},
-    }
-    const resource = parseResource({ ...mockSchemaResource, content })
+    const resource = parseResource(mockRevRegDefResource, zWebVhRevRegDefContent)
 
-    expect(resource.content).toMatchObject(content)
+    expect(resource.content).toMatchObject(mockRevRegDefResource.content)
   })
 
-  it('leaves revocation status-list content as plain JSON', () => {
-    const content = {
-      issuerId: mockSchemaResource.content.issuerId,
-      revRegDefId: 'rev-reg-def-id',
-      revocationList: [0, 1],
-      currentAccumulator: 'accumulator',
-    }
-    const resource = parseResource({ ...mockSchemaResource, content })
+  it('transforms revocation status list content', () => {
+    const resource = parseResource(mockRegRevEntryResource, zWebVhStatusListContent)
 
-    expect(resource.content).toEqual(content)
+    expect(resource.content).toMatchObject(mockRegRevEntryResource.content)
   })
 })

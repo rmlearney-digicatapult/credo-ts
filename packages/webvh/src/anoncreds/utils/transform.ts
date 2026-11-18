@@ -1,43 +1,37 @@
 import { z } from 'zod'
 
-const zWebVhSchemaContent = z.looseObject({
+export const zWebVhSchemaContent = z.looseObject({
   attrNames: z.array(z.string()).min(1),
   name: z.string(),
   version: z.string(),
   issuerId: z.string(),
 })
-type WebVhSchemaContent = z.output<typeof zWebVhSchemaContent>
 
-const zWebVhCredDefContent = z.looseObject({
+export const zWebVhCredDefContent = z.looseObject({
   issuerId: z.string(),
   schemaId: z.string(),
   type: z.string(),
   tag: z.string(),
   value: z.record(z.string(), z.unknown()),
 })
-type WebVhCredDefContent = z.output<typeof zWebVhCredDefContent>
 
-const zWebVhRevRegDefContent = z.looseObject({
+export const zWebVhRevRegDefContent = z.looseObject({
   issuerId: z.string(),
   revocDefType: z.string(),
   credDefId: z.string(),
   tag: z.string(),
-  value: z.record(z.string(), z.unknown()),
+  value: z.looseObject({
+    publicKeys: z.looseObject({ accumKey: z.looseObject({ z: z.string() }) }),
+    maxCredNum: z.number(),
+    tailsLocation: z.string(),
+    tailsHash: z.string(),
+  }),
 })
-type WebVhRevRegDefContent = z.output<typeof zWebVhRevRegDefContent>
-const zWebVhUnknownContent = z.record(z.string(), z.unknown())
 
-export type WebVhAnonCredsContent =
-  | WebVhSchemaContent
-  | WebVhCredDefContent
-  | WebVhRevRegDefContent
-  | Record<string, unknown>
-
-export function parseWebVhAnonCredsContent(value: unknown): WebVhAnonCredsContent {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return zWebVhUnknownContent.parse(value)
-  if ('attrNames' in value) return zWebVhSchemaContent.parse(value)
-  if ('schemaId' in value) return zWebVhCredDefContent.parse(value)
-  if ('revocDefType' in value) return zWebVhRevRegDefContent.parse(value)
-
-  return zWebVhUnknownContent.parse(value)
-}
+// The signed status list has no timestamp; the registry adds it from the link that selected the entry.
+export const zWebVhStatusListContent = z.looseObject({
+  issuerId: z.string(),
+  revRegDefId: z.string(),
+  revocationList: z.array(z.number()),
+  currentAccumulator: z.string(),
+})

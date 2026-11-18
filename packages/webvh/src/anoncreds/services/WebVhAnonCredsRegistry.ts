@@ -2,8 +2,6 @@ import type {
   AnonCredsCredentialDefinition,
   AnonCredsRegistry,
   AnonCredsRevocationRegistryDefinition,
-  AnonCredsRevocationRegistryDefinitionValue,
-  AnonCredsRevocationStatusList,
   AnonCredsRevocationStatusListWithoutTimestamp,
   AnonCredsSchema,
   GetCredentialDefinitionReturn,
@@ -39,13 +37,20 @@ import {
 } from '@credo-ts/core'
 import { parseDidWebvhUrl } from 'didwebvh-ts'
 import { canonicalize } from 'json-canonicalize'
+import type { ZodType } from 'zod'
 import { getWebVhDidResolver } from '../../dids/getWebVhDidResolver'
 import {
   type WebVhAttestedResource,
   type WebVhAttestedResourceInput,
+  type WebVhAttestedResourceLink,
   zWebVhAttestedResource,
 } from '../../resources/attestedResource'
-import { parseWebVhAnonCredsContent } from '../utils/transform'
+import {
+  zWebVhCredDefContent,
+  zWebVhRevRegDefContent,
+  zWebVhSchemaContent,
+  zWebVhStatusListContent,
+} from '../utils/transform'
 
 type DidResourceResolutionResult = {
   error?: string
@@ -53,122 +58,6 @@ type DidResourceResolutionResult = {
   content?: Record<string, unknown> | unknown[] | string // More specific than any, but still flexible
   contentMetadata?: Record<string, unknown>
   dereferencingMetadata?: Record<string, unknown>
-}
-
-type SchemaContentShape = {
-  attrNames: string[]
-  name: string
-  version: string
-  issuerId: string
-}
-
-type CredentialDefinitionContentShape = {
-  issuerId: string
-  schemaId: string
-  type: string
-  tag: string
-  value: Record<string, unknown>
-}
-
-type RevocationRegistryDefinitionContentShape = {
-  issuerId: string
-  revocDefType: string
-  credDefId: string
-  tag: string
-  value: RevocationRegistryDefinitionValueShape
-}
-
-type RevocationRegistryDefinitionValueShape = {
-  publicKeys: {
-    accumKey: {
-      z: string
-    }
-  }
-  maxCredNum: number
-  tailsLocation: string
-  tailsHash: string
-}
-
-type RevocationStatusListShape = {
-  issuerId: string
-  revRegDefId: string
-  revocationList: number[]
-  currentAccumulator: string
-  timestamp: number
-}
-
-function isSchemaContentShape(value: unknown): value is SchemaContentShape {
-  if (!value || typeof value !== 'object') return false
-
-  const candidate = value as Record<string, unknown>
-  return (
-    Array.isArray(candidate.attrNames) &&
-    candidate.attrNames.every((item) => typeof item === 'string') &&
-    typeof candidate.name === 'string' &&
-    typeof candidate.version === 'string' &&
-    typeof candidate.issuerId === 'string'
-  )
-}
-
-function isCredentialDefinitionContentShape(value: unknown): value is CredentialDefinitionContentShape {
-  if (!value || typeof value !== 'object') return false
-
-  const candidate = value as Record<string, unknown>
-  return (
-    typeof candidate.issuerId === 'string' &&
-    typeof candidate.schemaId === 'string' &&
-    typeof candidate.type === 'string' &&
-    typeof candidate.tag === 'string' &&
-    !!candidate.value &&
-    typeof candidate.value === 'object'
-  )
-}
-
-function isRevocationRegistryDefinitionContentShape(value: unknown): value is RevocationRegistryDefinitionContentShape {
-  if (!value || typeof value !== 'object') return false
-
-  const candidate = value as Record<string, unknown>
-  return (
-    typeof candidate.issuerId === 'string' &&
-    typeof candidate.revocDefType === 'string' &&
-    typeof candidate.credDefId === 'string' &&
-    typeof candidate.tag === 'string' &&
-    isRevocationRegistryDefinitionValueShape(candidate.value)
-  )
-}
-
-function isRevocationRegistryDefinitionValueShape(value: unknown): value is RevocationRegistryDefinitionValueShape {
-  if (!value || typeof value !== 'object') return false
-
-  const candidate = value as Record<string, unknown>
-  const publicKeys = candidate.publicKeys as Record<string, unknown> | undefined
-  const accumKey = publicKeys?.accumKey as Record<string, unknown> | undefined
-
-  return (
-    !!publicKeys &&
-    typeof publicKeys === 'object' &&
-    !!accumKey &&
-    typeof accumKey === 'object' &&
-    typeof accumKey.z === 'string' &&
-    typeof candidate.maxCredNum === 'number' &&
-    typeof candidate.tailsLocation === 'string' &&
-    typeof candidate.tailsHash === 'string'
-  )
-}
-
-function isRevocationStatusListShape(value: unknown): value is RevocationStatusListShape {
-  if (!value || typeof value !== 'object') return false
-
-  const candidate = value as Record<string, unknown>
-
-  return (
-    typeof candidate.issuerId === 'string' &&
-    typeof candidate.revRegDefId === 'string' &&
-    Array.isArray(candidate.revocationList) &&
-    candidate.revocationList.every((item) => typeof item === 'number') &&
-    typeof candidate.currentAccumulator === 'string' &&
-    typeof candidate.timestamp === 'number'
-  )
 }
 
 /**
@@ -208,11 +97,16 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
     const digestMultibase = MultiBaseEncoder.encode(digestMultihash, 'base58btc')
     return digestMultibase
   }
-  private async _resolveAndValidateAttestedResource(
+  private async _resolveAndValidateAttestedResource<Content extends { issuerId: string }>(
     agentContext: AgentContext,
     resourceId: string,
-    resourceTypeString: string
-  ): Promise<{ resourceObject: WebVhAttestedResource; resolutionResult: DidResourceResolutionResult }> {
+    resourceTypeString: string,
+    contentSchema: ZodType<Content>
+  ): Promise<{
+    resourceObject: WebVhAttestedResource
+    content: Content
+    resolutionResult: DidResourceResolutionResult
+  }> {
     try {
       const webvhDidResolver = getWebVhDidResolver(agentContext)
       if (!this.supportedIdentifier.test(resourceId))
@@ -250,12 +144,13 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       }
 
       let resourceObject: WebVhAttestedResource
+      let content: Content
       try {
         agentContext.config.logger.trace(
           `Parsing resource data: ${JSON.stringify(resolutionResult.content).substring(0, 200)}...`
         )
         resourceObject = zWebVhAttestedResource.parse(resolutionResult.content)
-        resourceObject.content = parseWebVhAnonCredsContent(resourceObject.content)
+        content = contentSchema.parse(resourceObject.content)
       } catch (parseError) {
         const cause = parseError instanceof Error ? parseError : undefined
         agentContext.config.logger.error(`Failed to parse resource data for ${resourceId}`, {
@@ -295,10 +190,9 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       }
       agentContext.config.logger.trace(`Resource ${resourceId} proof validated.`)
 
-      const contentIssuerId = (resourceObject.content as { issuerId?: unknown }).issuerId
-      if (contentIssuerId !== parsedResourceUrl.did) {
+      if (content.issuerId !== parsedResourceUrl.did) {
         throw new CredoError(
-          `Issuer ID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${String(contentIssuerId)}`
+          `Issuer ID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${content.issuerId}`
         )
       }
 
@@ -315,7 +209,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       }
       agentContext.config.logger.trace(`Resource ${resourceId} content hash matches filename.`)
 
-      return { resourceObject, resolutionResult }
+      return { resourceObject, content, resolutionResult }
     } catch (error) {
       agentContext.config.logger.error('Error in did:webvh _resolveAndValidateAttestedResource:', error)
       throw error
@@ -324,28 +218,18 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
 
   public async getSchema(agentContext: AgentContext, schemaId: string): Promise<GetSchemaReturn> {
     try {
-      const { resourceObject, resolutionResult } = await this._resolveAndValidateAttestedResource(
-        agentContext,
-        schemaId,
-        'schema'
-      )
-
-      // --- Parsing Step (Simplified) ---
-      const schemaContent = resourceObject.content
-
-      // Type check to ensure we have a schema content object
-      if (!isSchemaContentShape(schemaContent)) {
-        throw new CredoError(`Parsed resource content for ${schemaId} is not a valid schema.`)
-      }
-
-      const contentIssuerId = schemaContent.issuerId
+      const {
+        resourceObject,
+        content: schemaContent,
+        resolutionResult,
+      } = await this._resolveAndValidateAttestedResource(agentContext, schemaId, 'schema', zWebVhSchemaContent)
 
       return {
         schema: {
           attrNames: schemaContent.attrNames,
           name: schemaContent.name,
           version: schemaContent.version,
-          issuerId: contentIssuerId,
+          issuerId: schemaContent.issuerId,
         },
         schemaId,
         resolutionMetadata: resolutionResult.dereferencingMetadata || {},
@@ -373,17 +257,16 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
     credentialDefinitionId: string
   ): Promise<GetCredentialDefinitionReturn> {
     try {
-      const { resourceObject, resolutionResult } = await this._resolveAndValidateAttestedResource(
+      const {
+        resourceObject,
+        content: credDefContent,
+        resolutionResult,
+      } = await this._resolveAndValidateAttestedResource(
         agentContext,
         credentialDefinitionId,
-        'credential definition'
+        'credential definition',
+        zWebVhCredDefContent
       )
-
-      // Extract the content and make sure it's a CredDef
-      const credDefContent = resourceObject.content
-      if (!isCredentialDefinitionContentShape(credDefContent)) {
-        throw new CredoError('Resolved resource content is not a valid credential definition.')
-      }
 
       // Extract metadata from the resolved resource
       const credDefMetadata = resourceObject.metadata || resolutionResult.contentMetadata || {}
@@ -425,19 +308,16 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
     revocationRegistryDefinitionId: string
   ): Promise<GetRevocationRegistryDefinitionReturn> {
     try {
-      const { resourceObject, resolutionResult } = await this._resolveAndValidateAttestedResource(
+      const {
+        resourceObject,
+        content: revRegDefContent,
+        resolutionResult,
+      } = await this._resolveAndValidateAttestedResource(
         agentContext,
         revocationRegistryDefinitionId,
-        'revocation registry definition'
+        'revocation registry definition',
+        zWebVhRevRegDefContent
       )
-
-      const revRegDefContent = resourceObject.content
-
-      if (!isRevocationRegistryDefinitionContentShape(revRegDefContent)) {
-        throw new CredoError(
-          `Parsed resource content for ${revocationRegistryDefinitionId} is not a valid revocation registry definition.`
-        )
-      }
 
       // Extract metadata
       const revRegDefMetadata = resourceObject.metadata || resolutionResult.contentMetadata || {}
@@ -448,7 +328,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
           revocDefType: revRegDefContent.revocDefType as AnonCredsRevocationRegistryDefinition['revocDefType'], // TODO: Map revocDefType string to AnonCreds type
           credDefId: revRegDefContent.credDefId,
           tag: revRegDefContent.tag,
-          value: revRegDefContent.value as AnonCredsRevocationRegistryDefinitionValue,
+          value: revRegDefContent.value,
         },
         revocationRegistryDefinitionId,
         resolutionMetadata: resolutionResult.dereferencingMetadata || {},
@@ -491,44 +371,46 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       const { resourceObject } = await this._resolveAndValidateAttestedResource(
         agentContext,
         revocationRegistryId,
-        'revocation status list'
+        'revocation status list',
+        zWebVhRevRegDefContent
       )
       if (!resourceObject.links) {
         throw new CredoError('No revocation entries found.')
       }
 
       const revocationEntries = resourceObject.links
-        .filter((entry) => entry.timestamp != null)
-        .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+        .filter(
+          (entry): entry is WebVhAttestedResourceLink & { timestamp: number } => typeof entry.timestamp === 'number'
+        )
+        .sort((a, b) => a.timestamp - b.timestamp)
       if (!revocationEntries || revocationEntries.length === 0) {
         throw new CredoError('No revocation entries found.')
       }
 
       // The status list in force at a timestamp is the latest one published at or before it.
-      const selectedEntry = revocationEntries.filter((entry) => (entry.timestamp ?? 0) <= timestamp).pop()
+      const selectedEntry = revocationEntries.filter((entry) => entry.timestamp <= timestamp).pop()
       if (!selectedEntry) {
         throw new CredoError(`No revocation status list was published at or before timestamp ${timestamp}.`)
       }
 
-      const { resourceObject: revocationEntryResourceObject, resolutionResult: revocationEntryResolutionResult } =
-        await this._resolveAndValidateAttestedResource(agentContext, selectedEntry.id, 'revocation status list entry')
+      const {
+        resourceObject: revocationEntryResourceObject,
+        content: statusListContent,
+        resolutionResult: revocationEntryResolutionResult,
+      } = await this._resolveAndValidateAttestedResource(
+        agentContext,
+        selectedEntry.id,
+        'revocation status list entry',
+        zWebVhStatusListContent
+      )
 
       if (!revocationEntryResourceObject) {
         throw new CredoError('No revocation entry found for the given timestamp.')
       }
 
-      // The signed attested resource does not embed the timestamp, so we inject it before validating the shape
-      const revocationStatusListContent = {
-        ...(revocationEntryResourceObject.content as object),
-        timestamp: selectedEntry.timestamp,
-      }
-
-      if (!isRevocationStatusListShape(revocationStatusListContent)) {
-        throw new CredoError('Resolved revocation entry content is not a valid revocation status list.')
-      }
-
       return {
-        revocationStatusList: revocationStatusListContent as AnonCredsRevocationStatusList,
+        // The signed status list has no timestamp, so it comes from the link that selected the entry.
+        revocationStatusList: { ...statusListContent, timestamp: selectedEntry.timestamp },
         resolutionMetadata: revocationEntryResolutionResult.dereferencingMetadata || {},
         revocationStatusListMetadata: revocationEntryResourceObject.metadata || {},
       }
