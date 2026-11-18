@@ -8,9 +8,8 @@ import { WebVhDidCrypto } from './WebVhDidCrypto'
 
 export class WebVhDidResolver implements DidResolver {
   public readonly supportedMethods = ['webvh']
-  // Core caches/local documents bypass log validation and do not distinguish version selectors.
-  public readonly allowsCaching = false
-  public readonly allowsLocalDidRecord = false
+  public readonly allowsCaching = true
+  public readonly allowsLocalDidRecord = true
 
   /**
    * Resolves published logs through upstream's dispatcher, parser hook, and version-selector handling.

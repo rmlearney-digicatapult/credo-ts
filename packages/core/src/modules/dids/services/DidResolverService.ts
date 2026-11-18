@@ -70,9 +70,10 @@ export class DidResolverService {
       persistInCache = true,
       useLocalCreatedDidRecord = true,
     } = options
+    const hasQuery = parsed.query !== undefined
     const { cacheKey, cacheScope } = this.getCacheKeyAndScope(parsed)
 
-    if (resolver.allowsCaching && useCache) {
+    if (!hasQuery && resolver.allowsCaching && useCache) {
       const cache = agentContext.dependencyManager.resolve(CacheModuleConfig).cache
       const cachedDidDocument = await cache.get<DidResolutionResult & { didDocument: Record<string, unknown> }>(
         agentContext,
@@ -93,7 +94,7 @@ export class DidResolverService {
     }
 
     // TODO: we should store the document for future reference
-    if (resolver.allowsLocalDidRecord && useLocalCreatedDidRecord) {
+    if (!hasQuery && resolver.allowsLocalDidRecord && useLocalCreatedDidRecord) {
       // TODO: did should have tag whether a did document is present in the did record
       const [didRecord] = await this.didRepository.getCreatedDids(agentContext, {
         did: parsed.did,
@@ -127,7 +128,7 @@ export class DidResolverService {
       },
     }
 
-    if (resolutionResult.didDocument && resolver.allowsCaching && persistInCache) {
+    if (resolutionResult.didDocument && !hasQuery && resolver.allowsCaching && persistInCache) {
       const cache = agentContext.dependencyManager.resolve(CacheModuleConfig).cache
       await cache.set(
         agentContext,

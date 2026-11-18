@@ -428,6 +428,71 @@ describe('DidResolverService', () => {
     })
   })
 
+  it.each(['?versionId=1', '?'])('bypasses cache and local records when the DID URL has query %s', async (query) => {
+    const did = 'did:webvh:QmYwAPJzv5CZsnAzt8auVTLZXNGq3kUu4uU3xk5f9v:example.com'
+    const didUrl = `${did}${query}`
+    const queryCache = new InMemoryLruCache({ limit: 10 })
+    const context = getAgentContext({
+      registerInstances: [[CacheModuleConfig, new CacheModuleConfig({ cache: queryCache })]],
+    })
+    const cachedDocument = createDidDocument(did)
+    const resolvedDocument = createDidDocument(did)
+    const cacheKey = `did:resolver:${did}`
+
+    await queryCache.set(
+      context,
+      cacheKey,
+      {
+        didDocument: cachedDocument.toJSON(),
+        didDocumentMetadata: { versionId: 'cached' },
+        didResolutionMetadata: {},
+      },
+      300,
+      { scope: 'context' }
+    )
+
+    const getCache = vi.spyOn(queryCache, 'get')
+    const setCache = vi.spyOn(queryCache, 'set')
+    const getCreatedDids = vi.fn().mockResolvedValue([
+      new DidRecord({
+        did,
+        didDocument: cachedDocument,
+        role: DidDocumentRole.Created,
+      }),
+    ])
+    const resolve = vi.fn().mockResolvedValue({
+      didDocument: resolvedDocument,
+      didDocumentMetadata: { versionId: 'resolved' },
+      didResolutionMetadata: {},
+    })
+    const resolver: DidResolver = {
+      supportedMethods: ['webvh'],
+      allowsCaching: true,
+      allowsLocalDidRecord: true,
+      resolve,
+    }
+    const service = new DidResolverService(
+      agentConfig.logger,
+      new DidsModuleConfig({ resolvers: [resolver], cacheScope: { webvh: 'context' } }),
+      { getCreatedDids } as unknown as DidRepository
+    )
+
+    const result = await service.resolve(context, didUrl)
+
+    expect(result.didDocumentMetadata).toEqual({ versionId: 'resolved' })
+    expect(resolve).toHaveBeenCalledWith(context, did, parseDid(didUrl), {})
+    expect(getCache).not.toHaveBeenCalled()
+    expect(setCache).not.toHaveBeenCalled()
+    expect(getCreatedDids).not.toHaveBeenCalled()
+    expect(
+      await queryCache.get(context, cacheKey, {
+        scope: 'context',
+      })
+    ).toMatchObject({
+      didDocumentMetadata: { versionId: 'cached' },
+    })
+  })
+
   it("should return an error with 'invalidDid' if the did string couldn't be parsed", async () => {
     const did = 'did:__Asd:asdfa'
 

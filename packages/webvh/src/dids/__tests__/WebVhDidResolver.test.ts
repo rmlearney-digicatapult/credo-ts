@@ -1,11 +1,4 @@
-import {
-  AgentConfig,
-  CacheModuleConfig,
-  DidRepository,
-  InjectionSymbols,
-  InMemoryLruCache,
-  parseDid,
-} from '@credo-ts/core'
+import { AgentConfig, CacheModuleConfig, InjectionSymbols, InMemoryLruCache, parseDid } from '@credo-ts/core'
 import { type DidResolutionError, getResolver } from 'didwebvh-ts'
 import { Subject } from 'rxjs'
 
@@ -105,10 +98,9 @@ describe('WebVhDidResolver result mapping', () => {
     expect(logger).toHaveBeenCalled()
   })
 
-  test('does not bypass the upstream result through core document shortcuts', () => {
-    expect(resolver.allowsCaching).toBe(false)
-    expect(resolver.allowsLocalDidRecord).toBe(false)
-    expect(context.resolve(DidRepository)).toBeDefined()
+  test('allows core caching and local created DID records', () => {
+    expect(resolver.allowsCaching).toBe(true)
+    expect(resolver.allowsLocalDidRecord).toBe(true)
   })
 
   test('executes upstream parser rejection before resolution or fetch', async () => {

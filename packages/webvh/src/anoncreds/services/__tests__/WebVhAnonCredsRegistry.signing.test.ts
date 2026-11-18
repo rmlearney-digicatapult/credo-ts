@@ -8,10 +8,9 @@
  * referenced from `assertionMethod` — which is the case for a did:webvh whose log-control
  * (update) key is separate from its signing key.
  *
- * Unlike the other tests in this directory these run against real Ed25519 keys and the real
- * `W3cDataIntegrityApi`, so a resource actually has to round-trip. No network access is needed:
- * DID resolution is stubbed from the repository for relationship-selection tests; a separate
- * test below resolves a real registrar-authored log.
+ * These tests use real Ed25519 keys and the real `W3cDataIntegrityApi`, so a resource actually has
+ * to round-trip. Signing resolves locally created DIDs from their records, while the registrar-log
+ * test also resolves a versioned DID through the real resolver.
  */
 
 import {
@@ -21,6 +20,7 @@ import {
   DidDocumentRole,
   DidRecord,
   DidRepository,
+  DidResolverService,
   DidsModuleConfig,
   InjectionSymbols,
   InMemoryLruCache,
@@ -118,17 +118,10 @@ describe('WebVhAnonCredsRegistry assertionMethod signing', () => {
       })
     )
 
-    vi.spyOn(webvhResolver, 'resolve').mockImplementation(async (context, did) => {
-      const record = await context.resolve(DidRepository).getSingleByQuery(context, { did })
-      return { didDocument: record.didDocument ?? null, didDocumentMetadata: {}, didResolutionMetadata: {} }
-    })
-
     registry = new WebVhAnonCredsRegistry()
   })
 
-  it('round-trips an attested resource using caller-authored fragments and a validated registrar log', async () => {
-    const resolver = agentContext.resolve(DidsModuleConfig).resolvers[0] as WebVhDidResolver
-    vi.mocked(resolver.resolve).mockRestore()
+  it('round-trips caller-authored fragments and resolves a versioned registrar log', async () => {
     const created = await new WebVhDidRegistrar().create(
       agentContext,
       await createWebVhTestOptions(agentContext, 'authored.example.com')
@@ -142,6 +135,18 @@ describe('WebVhAnonCredsRegistry assertionMethod signing', () => {
     vi.spyOn(agentContext.config, 'fetch').mockImplementation(
       async () => new Response(log.map((entry) => JSON.stringify(entry)).join('\n'))
     )
+    const resolver = new DidResolverService(
+      agentContext.config.logger,
+      agentContext.resolve(DidsModuleConfig),
+      agentContext.resolve(DidRepository)
+    )
+    const versionedResolution = await resolver.resolve(
+      agentContext,
+      `${created.didState.did}?versionId=${log[0].versionId}`
+    )
+    expect(versionedResolution.didDocument?.id).toBe(created.didState.did)
+    expect(versionedResolution.didDocumentMetadata.versionId).toBe(log[0].versionId)
+
     const authoredSchema = { ...schema, issuerId: created.didState.did }
     const { registrationMetadata, schemaState } = await registry.registerSchema(agentContext, {
       schema: authoredSchema,
