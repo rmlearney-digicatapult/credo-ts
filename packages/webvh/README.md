@@ -117,8 +117,14 @@ const createOptions: WebVhDidCreateOptions = {
     address: 'issuer.example.com',
     paths: ['issuers', '01'],
     updateKeys: [controllerMultikey],
-    keys: [{ didDocumentRelativeKeyId: '#issuer-key', kmsKeyId: assertionKey.keyId }],
-    updateKeyKmsKeyIds: { [controllerMultikey]: controllerKey.keyId },
+    keys: [{
+      didDocumentRelativeKeyId: '#issuer-key',
+      kmsKeyId: assertionKey.keyId,
+      kmsBackend: assertionKey.backend,
+    }],
+    updateKeyKmsKeyIds: {
+      [controllerMultikey]: { keyId: controllerKey.keyId, kmsBackend: controllerKey.backend },
+    },
   },
 }
 
@@ -136,7 +142,7 @@ if (updated.didState.state !== 'finished') throw new Error(JSON.stringify(update
 ```
 
 `options.keys` uses core `DidDocumentKey[]` and contains only document keys managed by this agent.
-Controller keys are separate: `options.updateKeyKmsKeyIds` maps bare Ed25519 multikeys to existing KMS IDs, even when those keys are absent from the document. Supplied mappings are checked against KMS public material. No registrar `createKey` or single-key generated-document mode is provided.
+Controller keys are separate: `options.updateKeyKmsKeyIds` maps bare Ed25519 multikeys to `KmsKeyReference` values (`keyId` and `kmsBackend`), even when those keys are absent from the document. Document-key mappings also retain the selected backend. Mappings are checked against KMS public material. No registrar `createKey` or single-key generated-document mode is provided.
 
 Every update requires a complete `DidDocument`; partial documents, omitted documents, and `addToDidDocument`/`removeFromDidDocument` are unsupported. Omitted relationships are not repaired. An omitted `options.keys` retains only mappings whose fragment and public material still match the returned document; supplying it replaces the document-key list. New controller mappings merge into persisted mappings. Under pre-rotation, the signer must be one of the caller-supplied pre-committed replacement `updateKeys`.
 

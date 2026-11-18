@@ -1,7 +1,8 @@
+import type { Kms } from '@credo-ts/core'
 import type { DIDResolutionMeta, WitnessProofFileEntry } from 'didwebvh-ts'
 import type { WebVhDidLog } from '../resources'
 
-export type WebVhUpdateKeyKmsKeyIds = Record<string, string>
+export type WebVhUpdateKeyKmsKeyIds = Record<string, Kms.KmsKeyReference>
 
 export enum WebVhDidRecordMetadataKeys {
   // FIXME: refactor to '_internal/webvhDidLog' in next major release

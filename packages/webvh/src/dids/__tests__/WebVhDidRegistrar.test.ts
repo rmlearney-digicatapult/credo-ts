@@ -96,7 +96,9 @@ describe('WebVhDidRegistrar integration', () => {
     const controller = await createWebVhTestKey(agentContext)
     options.options.keys = []
     options.options.updateKeys = [`did:key:${controller.multikey}#${controller.multikey}`]
-    options.options.updateKeyKmsKeyIds = { [controller.multikey]: controller.keyId }
+    options.options.updateKeyKmsKeyIds = {
+      [controller.multikey]: { keyId: controller.keyId, kmsBackend: controller.kmsBackend },
+    }
     const { did, didDocument } = await create(options)
     expect(didDocument.verificationMethod?.[0].publicKeyMultibase).not.toBe(controller.multikey)
     const result = await registrar.update(agentContext, { did, didDocument })
@@ -132,7 +134,11 @@ describe('WebVhDidRegistrar integration', () => {
 
   test('rejects a controller mapping with mismatched KMS public material', async () => {
     const options = await createWebVhTestOptions(agentContext)
-    options.options.updateKeyKmsKeyIds[options.options.updateKeys[0]] = (await createWebVhTestKey(agentContext)).keyId
+    const replacementKey = await createWebVhTestKey(agentContext)
+    options.options.updateKeyKmsKeyIds[options.options.updateKeys[0]] = {
+      keyId: replacementKey.keyId,
+      kmsBackend: replacementKey.kmsBackend,
+    }
     const result = await registrar.create(agentContext, options)
     expect(result.didState).toMatchObject({
       state: 'failed',
@@ -193,7 +199,10 @@ describe('WebVhDidRegistrar integration', () => {
     const rotated = await registrar.update(agentContext, {
       did,
       didDocument,
-      options: { updateKeys: [next.multikey], updateKeyKmsKeyIds: { [next.multikey]: next.keyId } },
+      options: {
+        updateKeys: [next.multikey],
+        updateKeyKmsKeyIds: { [next.multikey]: { keyId: next.keyId, kmsBackend: next.kmsBackend } },
+      },
     })
     expect(rotated.didState.state).toBe('finished')
     const parameterUpdate = await registrar.update(agentContext, {
@@ -223,7 +232,11 @@ describe('WebVhDidRegistrar integration', () => {
     const update = await registrar.update(agentContext, {
       did,
       didDocument,
-      options: { updateKeys: [next.multikey], nextKeyHashes: [], updateKeyKmsKeyIds: { [next.multikey]: next.keyId } },
+      options: {
+        updateKeys: [next.multikey],
+        nextKeyHashes: [],
+        updateKeyKmsKeyIds: { [next.multikey]: { keyId: next.keyId, kmsBackend: next.kmsBackend } },
+      },
     })
     expect(update.didState.state).toBe('finished')
     const deactivated = await registrar.deactivate(agentContext, { did })
@@ -249,6 +262,7 @@ describe('WebVhDidRegistrar integration', () => {
       candidateLog: genesis.log,
       witnessProofs: [],
       kmsKeyId: witness.keyId,
+      kmsBackend: witness.kmsBackend,
     })
     await api.storeWitnessProofs(did, [genesisProof])
     const update = await registrar.update(agentContext, { did, didDocument })
@@ -259,6 +273,7 @@ describe('WebVhDidRegistrar integration', () => {
       candidateLog: candidate.log,
       witnessProofs: [genesisProof],
       kmsKeyId: witness.keyId,
+      kmsBackend: witness.kmsBackend,
     })
     await api.storeWitnessProofs(did, [genesisProof, updateProof])
     expect(getWitnessRequirements(candidate.log).map((requirement) => requirement.threshold)).toEqual([1, 1])

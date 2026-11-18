@@ -39,6 +39,7 @@ export type WebVhWitnessSigningOptions = Pick<
   'trustedLog' | 'candidateLog' | 'witnessProofs'
 > & {
   kmsKeyId: string
+  kmsBackend?: string
 }
 
 export type WebVhWitnessVerificationOptions = Omit<VerifyWitnessProofsOptions, 'verifier'>
@@ -195,7 +196,10 @@ export class WebVhApi {
    */
   public async signWitnessProof(options: WebVhWitnessSigningOptions): Promise<WitnessProofFileEntry> {
     try {
-      const witnessSigner = await createWebVhKmsSigner(this.agentContext, options.kmsKeyId)
+      const witnessSigner = await createWebVhKmsSigner(this.agentContext, {
+        keyId: options.kmsKeyId,
+        kmsBackend: options.kmsBackend,
+      })
       return await signWitnessProofEntry({
         trustedLog: options.trustedLog,
         candidateLog: options.candidateLog,

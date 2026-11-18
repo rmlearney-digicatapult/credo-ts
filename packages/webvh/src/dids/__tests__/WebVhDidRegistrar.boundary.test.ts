@@ -4,6 +4,7 @@ import {
   DidRepository,
   InjectionSymbols,
   InMemoryLruCache,
+  Kms,
 } from '@credo-ts/core'
 import * as webvh from 'didwebvh-ts'
 import { Subject } from 'rxjs'
@@ -59,7 +60,27 @@ describe('WebVhDidRegistrar adapter boundary', () => {
     const returned = await createDID.mock.results[0].value
     const record = await agentContext.resolve(DidRepository).getSingleByQuery(agentContext, { did: returned.did })
     expect(record.metadata.get(WebVhDidRecordMetadataKeys.DidLog)).toEqual(returned.log)
+    expect(record.keys?.[0]).toMatchObject({
+      kmsKeyId: options.options.keys[0].kmsKeyId,
+      kmsBackend: 'node',
+    })
+    expect(record.metadata.get(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds)).toEqual({
+      [options.options.updateKeys[0]]: {
+        ...options.options.updateKeyKmsKeyIds[options.options.updateKeys[0]],
+        kmsBackend: 'node',
+      },
+    })
     expect(result.didDocumentMetadata).toEqual(returned.meta)
+  })
+
+  test('uses the referenced KMS backend for controller signing', async () => {
+    const options = await createWebVhTestOptions(agentContext)
+    const kms = agentContext.resolve(Kms.KeyManagementApi)
+    const sign = vi.spyOn(kms, 'sign')
+    const result = await registrar.create(agentContext, options)
+
+    expect(result.didState.state).toBe('finished')
+    expect(sign).toHaveBeenCalledWith(expect.objectContaining({ backend: options.options.keys[0].kmsBackend }))
   })
 
   test('update forwards the complete document, options and agent fetch without merging', async () => {

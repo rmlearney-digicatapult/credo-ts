@@ -34,7 +34,11 @@ export function validDidDoc() {
 export async function createWebVhTestKey(agentContext: AgentContext) {
   const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
   const key = await kms.createKey({ type: { kty: 'OKP', crv: 'Ed25519' } })
-  return { keyId: key.keyId, multikey: Kms.PublicJwk.fromPublicJwk(key.publicJwk).fingerprint }
+  return {
+    keyId: key.keyId,
+    kmsBackend: key.backend,
+    multikey: Kms.PublicJwk.fromPublicJwk(key.publicJwk).fingerprint,
+  }
 }
 
 export async function createWebVhTestOptions(
@@ -42,7 +46,7 @@ export async function createWebVhTestOptions(
   address = 'id.test-suite.app',
   paths?: string[]
 ): Promise<WebVhDidCreateOptions> {
-  const { keyId, multikey } = await createWebVhTestKey(agentContext)
+  const { keyId, kmsBackend, multikey } = await createWebVhTestKey(agentContext)
   return {
     method: 'webvh',
     didDocument: DidDocument.fromJSON({
@@ -63,9 +67,9 @@ export async function createWebVhTestOptions(
     options: {
       address,
       paths,
-      keys: [{ didDocumentRelativeKeyId: '#assertion-key', kmsKeyId: keyId }],
+      keys: [{ didDocumentRelativeKeyId: '#assertion-key', kmsKeyId: keyId, kmsBackend }],
       updateKeys: [multikey],
-      updateKeyKmsKeyIds: { [multikey]: keyId },
+      updateKeyKmsKeyIds: { [multikey]: { keyId, kmsBackend } },
     },
   }
 }

@@ -71,9 +71,9 @@ export class WebVhDidRegistrar implements DidRegistrar {
   public async create(agentContext: AgentContext, options: WebVhDidCreateOptions): Promise<DidCreateResult> {
     try {
       this.assertCompleteDocument(options.didDocument)
-      const { keys, updateKeyKmsKeyIds, ...upstreamOptions } = options.options
+      const { keys: inputKeys, updateKeyKmsKeyIds, ...upstreamOptions } = options.options
       const { address, paths, updateKeys } = upstreamOptions
-      if (!Array.isArray(keys) || !updateKeyKmsKeyIds || !Array.isArray(updateKeys)) {
+      if (!Array.isArray(inputKeys) || !updateKeyKmsKeyIds || !Array.isArray(updateKeys)) {
         throw new CredoError('Create options require keys, updateKeyKmsKeyIds, and updateKeys')
       }
       const domain = [address, ...(paths ?? [])].join(':')
@@ -85,9 +85,9 @@ export class WebVhDidRegistrar implements DidRegistrar {
       })
       if (existing) throw new CredoError(`A record with domain "${address}" already exists.`)
 
-      await validateWebVhDocumentKeys(agentContext, options.didDocument, keys)
-      await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
-      const signer = await selectWebVhControllerSigner(agentContext, updateKeys, updateKeyKmsKeyIds)
+      const keys = await validateWebVhDocumentKeys(agentContext, options.didDocument, inputKeys)
+      const controllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
+      const signer = await selectWebVhControllerSigner(agentContext, updateKeys, controllerKeys)
       const result = await createDID({
         ...upstreamOptions,
         didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },
@@ -95,7 +95,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
         verifier: new WebVhDidCrypto(agentContext),
       })
       const didDocument = DidDocument.fromJSON(result.doc)
-      await validateWebVhDocumentKeys(agentContext, didDocument, keys)
+      const validatedKeys = await validateWebVhDocumentKeys(agentContext, didDocument, keys)
       const returnedDomain = this.domainTag(result.did)
       if (
         returnedDomain !== domain &&
@@ -111,10 +111,10 @@ export class WebVhDidRegistrar implements DidRegistrar {
         did: result.did,
         didDocument,
         role: DidDocumentRole.Created,
-        keys,
+        keys: validatedKeys,
         tags: { domain: returnedDomain },
       })
-      this.persistResult(record, result, updateKeyKmsKeyIds)
+      this.persistResult(record, result, controllerKeys)
       await repository.save(agentContext, record)
       return this.finished(result, didDocument)
     } catch (error) {

@@ -76,10 +76,9 @@ export async function prepareWebVhDocumentWrite(
   const state = await resolveWebVhControllerState(agentContext, record, input.witnessProofs)
   const controllerKeys = {
     ...record.metadata.get<WebVhUpdateKeyKmsKeyIds>(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds),
-    ...updateKeyKmsKeyIds,
+    ...(updateKeyKmsKeyIds ? await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds) : {}),
   }
-  if (updateKeyKmsKeyIds) await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
-  if (keys) await validateWebVhDocumentKeys(agentContext, didDocument, keys)
+  const validatedKeys = keys ? await validateWebVhDocumentKeys(agentContext, didDocument, keys) : undefined
   const authorizedKeys = state.didDocumentMetadata.prerotation ? input.updateKeys : state.didDocumentMetadata.updateKeys
   if (!Array.isArray(authorizedKeys) || !authorizedKeys.every((key): key is string => typeof key === 'string')) {
     throw new CredoError('updateKeys must be provided while pre-rotation is active')
@@ -97,7 +96,7 @@ export async function prepareWebVhDocumentWrite(
     verifier: new WebVhDidCrypto(agentContext),
     fetch: agentContext.config.fetch.bind(agentContext.config),
   }
-  return { record, controllerKeys, keys, writerOptions }
+  return { record, controllerKeys, keys: validatedKeys, writerOptions }
 }
 
 export async function persistWebVhDocumentWrite(
@@ -107,8 +106,11 @@ export async function persistWebVhDocumentWrite(
 ) {
   const { record, controllerKeys, writerOptions } = prepared
   const didDocument = DidDocument.fromJSON(result.doc)
-  const keys = prepared.keys ?? retainWebVhDocumentKeys(record.didDocument, didDocument, record.keys ?? [])
-  await validateWebVhDocumentKeys(agentContext, didDocument, keys)
+  const keys = await validateWebVhDocumentKeys(
+    agentContext,
+    didDocument,
+    prepared.keys ?? retainWebVhDocumentKeys(record.didDocument, didDocument, record.keys ?? [])
+  )
   if (result.did !== record.did) {
     record.setTags({ domain: parseDid(result.did).id.split(':').slice(1).map(decodeURIComponent).join(':') })
   }
@@ -144,27 +146,38 @@ export function failedWebVhRegistration(
   }
 }
 
-export async function getWebVhKmsPublicJwk(agentContext: AgentContext, keyId: string): Promise<Kms.PublicJwk> {
-  const { publicKey: key } = await agentContext.dependencyManager.resolve(Kms.KeyManagementApi).getPublicKey({ keyId })
-  if (key.kty === 'oct') throw new CredoError(`KMS key '${keyId}' must be asymmetric`)
-  return Kms.PublicJwk.fromPublicJwk(key)
+export async function getWebVhKmsPublicJwk(
+  agentContext: AgentContext,
+  keyReference: Kms.KmsKeyReference
+): Promise<{ publicJwk: Kms.PublicJwk; kmsBackend: string }> {
+  const { publicKey: key, backend } = await agentContext.dependencyManager
+    .resolve(Kms.KeyManagementApi)
+    .getPublicKey({ keyId: keyReference.keyId, backend: keyReference.kmsBackend })
+  if (key.kty === 'oct') throw new CredoError(`KMS key '${keyReference.keyId}' must be asymmetric`)
+  return { publicJwk: Kms.PublicJwk.fromPublicJwk(key), kmsBackend: backend }
 }
 
-export async function createWebVhKmsSigner(agentContext: AgentContext, keyId: string) {
-  const publicJwk = await getWebVhKmsPublicJwk(agentContext, keyId)
+export async function createWebVhKmsSigner(agentContext: AgentContext, keyReference: Kms.KmsKeyReference) {
+  const { publicJwk, kmsBackend } = await getWebVhKmsPublicJwk(agentContext, keyReference)
   if (!publicJwk.is(Kms.Ed25519PublicJwk)) {
-    throw new CredoError(`KMS key '${keyId}' must be Ed25519 to sign a WebVH proof`)
+    throw new CredoError(`KMS key '${keyReference.keyId}' must be Ed25519 to sign a WebVH proof`)
   }
-  return new WebVhDidCryptoSigner(agentContext, publicJwk.fingerprint, keyId)
+  return new WebVhDidCryptoSigner(agentContext, publicJwk.fingerprint, keyReference.keyId, kmsBackend)
 }
 
-export async function validateWebVhControllerKeys(agentContext: AgentContext, mappings: WebVhUpdateKeyKmsKeyIds) {
-  for (const [multikey, keyId] of Object.entries(mappings)) {
-    const signer = await createWebVhKmsSigner(agentContext, keyId)
-    if (signer.getVerificationMethodId() !== `did:key:${multikey}#${multikey}`) {
-      throw new CredoError(`Controller update key '${multikey}' does not match KMS key '${keyId}'`)
+export async function validateWebVhControllerKeys(
+  agentContext: AgentContext,
+  mappings: WebVhUpdateKeyKmsKeyIds
+): Promise<WebVhUpdateKeyKmsKeyIds> {
+  const validatedMappings: WebVhUpdateKeyKmsKeyIds = {}
+  for (const [multikey, keyReference] of Object.entries(mappings)) {
+    const { publicJwk, kmsBackend } = await getWebVhKmsPublicJwk(agentContext, keyReference)
+    if (`did:key:${publicJwk.fingerprint}#${publicJwk.fingerprint}` !== `did:key:${multikey}#${multikey}`) {
+      throw new CredoError(`Controller update key '${multikey}' does not match KMS key '${keyReference.keyId}'`)
     }
+    validatedMappings[multikey] = { keyId: keyReference.keyId, kmsBackend }
   }
+  return validatedMappings
 }
 
 export async function selectWebVhControllerSigner(
@@ -179,11 +192,11 @@ export async function selectWebVhControllerSigner(
     if (parsed?.fragment && parsed.fragment !== multikey) {
       throw new CredoError(`Controller update key '${updateKey}' has a mismatched did:key fragment`)
     }
-    const keyId = mappings[multikey]
-    if (keyId) {
-      const signer = await createWebVhKmsSigner(agentContext, keyId)
+    const keyReference = mappings[multikey]
+    if (keyReference) {
+      const signer = await createWebVhKmsSigner(agentContext, keyReference)
       if (signer.getVerificationMethodId() !== `did:key:${multikey}#${multikey}`) {
-        throw new CredoError(`Controller update key '${multikey}' does not match KMS key '${keyId}'`)
+        throw new CredoError(`Controller update key '${multikey}' does not match KMS key '${keyReference.keyId}'`)
       }
       return signer
     }
@@ -215,18 +228,24 @@ export async function validateWebVhDocumentKeys(
   agentContext: AgentContext,
   document: DidDocument,
   keys: DidDocumentKey[]
-) {
-  for (const { didDocumentRelativeKeyId, kmsKeyId } of keys) {
+): Promise<DidDocumentKey[]> {
+  const resolvedKeys: DidDocumentKey[] = []
+  for (const { didDocumentRelativeKeyId, kmsKeyId, kmsBackend } of keys) {
     if (!didDocumentRelativeKeyId.startsWith('#') || didDocumentRelativeKeyId.length === 1) {
       throw new CredoError('Document KMS mappings require a caller-authored relative key ID such as #key-1')
     }
     const method = findDocumentKey(document, didDocumentRelativeKeyId)
     if (!method) throw new CredoError(`Document key '${didDocumentRelativeKeyId}' is not present in the DID document`)
-    const publicJwk = await getWebVhKmsPublicJwk(agentContext, kmsKeyId)
+    const { publicJwk, kmsBackend: resolvedBackend } = await getWebVhKmsPublicJwk(agentContext, {
+      keyId: kmsKeyId,
+      kmsBackend,
+    })
     if (!getPublicJwkFromVerificationMethod(method).equals(publicJwk)) {
       throw new CredoError(`Document key '${didDocumentRelativeKeyId}' does not match KMS key '${kmsKeyId}'`)
     }
+    resolvedKeys.push({ didDocumentRelativeKeyId, kmsKeyId, kmsBackend: resolvedBackend })
   }
+  return resolvedKeys
 }
 
 export function retainWebVhDocumentKeys(
