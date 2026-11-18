@@ -131,56 +131,67 @@ describe('WebVhDidRegistrar adapter boundary', () => {
     expect(resolveDIDFromLog).not.toHaveBeenCalled()
   })
 
-  test('migration uses the upstream migration writer and persists its returned identity and log', async () => {
-    const options = await createWebVhTestOptions(agentContext)
-    options.options.portable = true
-    const created = await registrar.create(agentContext, options)
-    if (created.didState.state !== 'finished') throw new Error('Fixture create failed')
-    const { did, didDocument } = created.didState
-    const migrated = await registrar.update(agentContext, {
-      did,
-      didDocument,
-      options: { address: 'xn--bcher-kva.example.com' },
-    })
-    if (migrated.didState.state !== 'finished') throw new Error('Fixture move failed')
-    const migrationResult = await vi.mocked(webvh.updateDID).mock.results.at(-1)?.value
-    const repository = agentContext.resolve(DidRepository)
-    const record = await repository.getSingleByQuery(agentContext, { did: migrated.didState.did })
-    const original = await vi.mocked(webvh.createDID).mock.results[0].value
-    record.did = did
-    record.didDocument = didDocument
-    record.metadata.set(WebVhDidRecordMetadataKeys.DidLog, original.log)
-    record.setTags({ domain: options.options.address })
-    await repository.update(agentContext, record)
-    const migrateDID = vi.spyOn(webvh, 'migrateDID').mockResolvedValue(migrationResult)
-    vi.mocked(webvh.updateDID).mockClear()
-    const result = await new WebVhApi(agentContext).migrate({
-      did,
-      didDocument,
-      options: {
-        address: 'b%C3%BCcher.example.com',
-        keys: options.options.keys,
-        updateKeyKmsKeyIds: options.options.updateKeyKmsKeyIds,
-      },
-    })
-    expect(result.didState.state).toBe('finished')
-    expect(webvh.updateDID).not.toHaveBeenCalled()
-    expect(migrateDID).toHaveBeenCalledWith(
-      expect.objectContaining({ address: 'b%C3%BCcher.example.com', fetch: expect.any(Function) })
-    )
-    expect(migrateDID.mock.calls[0][0]).not.toHaveProperty('keys')
-    expect(migrateDID.mock.calls[0][0]).not.toHaveProperty('updateKeyKmsKeyIds')
-    const persisted = await repository.getSingleByQuery(agentContext, { did: migrationResult.did })
-    expect(persisted.didDocument?.toJSON()).toEqual(migrationResult.doc)
-    expect(persisted.metadata.get(WebVhDidRecordMetadataKeys.DidLog)).toEqual(migrationResult.log)
-    expect(result.didDocumentMetadata).toEqual(migrationResult.meta)
-    expect(
-      await repository.getSingleByQuery(agentContext, {
-        did: migrationResult.did,
-        domain: 'xn--bcher-kva.example.com',
+  test.each([false, true])(
+    'migration persists upstream results when another SCID shares the location: %s',
+    async (occupied) => {
+      const options = await createWebVhTestOptions(agentContext)
+      options.options.portable = true
+      const created = await registrar.create(agentContext, options)
+      if (created.didState.state !== 'finished') throw new Error('Fixture create failed')
+      const { did, didDocument } = created.didState
+      const migrated = await registrar.update(agentContext, {
+        did,
+        didDocument,
+        options: { address: 'xn--bcher-kva.example.com' },
       })
-    ).toMatchObject({ id: persisted.id })
-  })
+      if (migrated.didState.state !== 'finished') throw new Error('Fixture move failed')
+      const migrationResult = await vi.mocked(webvh.updateDID).mock.results.at(-1)?.value
+      const repository = agentContext.resolve(DidRepository)
+      const record = await repository.getSingleByQuery(agentContext, { did: migrated.didState.did })
+      const original = await vi.mocked(webvh.createDID).mock.results[0].value
+      record.did = did
+      record.didDocument = didDocument
+      record.metadata.set(WebVhDidRecordMetadataKeys.DidLog, original.log)
+      record.setTags({ domain: options.options.address })
+      await repository.update(agentContext, record)
+      if (occupied) {
+        const destination = await registrar.create(
+          agentContext,
+          await createWebVhTestOptions(agentContext, 'xn--bcher-kva.example.com')
+        )
+        expect(destination.didState.state).toBe('finished')
+      }
+      const migrateDID = vi.spyOn(webvh, 'migrateDID').mockResolvedValue(migrationResult)
+      vi.mocked(webvh.updateDID).mockClear()
+      const result = await new WebVhApi(agentContext).migrate({
+        did,
+        didDocument,
+        options: {
+          address: 'b%C3%BCcher.example.com',
+          keys: options.options.keys,
+          updateKeyKmsKeyIds: options.options.updateKeyKmsKeyIds,
+        },
+      })
+      expect(webvh.updateDID).not.toHaveBeenCalled()
+      expect(migrateDID).toHaveBeenCalledWith(
+        expect.objectContaining({ address: 'b%C3%BCcher.example.com', fetch: expect.any(Function) })
+      )
+      expect(migrateDID.mock.calls[0][0]).not.toHaveProperty('keys')
+      expect(migrateDID.mock.calls[0][0]).not.toHaveProperty('updateKeyKmsKeyIds')
+      expect(result.didState.state).toBe('finished')
+      const persisted = await repository.getSingleByQuery(agentContext, { did: migrationResult.did })
+      expect(persisted.didDocument?.toJSON()).toEqual(migrationResult.doc)
+      expect(persisted.metadata.get(WebVhDidRecordMetadataKeys.DidLog)).toEqual(migrationResult.log)
+      expect(result.didDocumentMetadata).toEqual(migrationResult.meta)
+      expect(
+        await repository.getSingleByQuery(agentContext, {
+          did: migrationResult.did,
+          domain: 'xn--bcher-kva.example.com',
+        })
+      ).toMatchObject({ id: persisted.id })
+      expect(await repository.getAll(agentContext)).toHaveLength(occupied ? 2 : 1)
+    }
+  )
 
   test('retains thrown upstream detail and stringifies non-Error failures', async () => {
     const options = await createWebVhTestOptions(agentContext)

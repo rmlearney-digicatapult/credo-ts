@@ -38,6 +38,7 @@ import { createWebVhTestOptions } from '../../../../tests/utils'
 import { WebVhDidRegistrar } from '../../../dids/WebVhDidRegistrar'
 import { WebVhDidResolver } from '../../../dids/WebVhDidResolver'
 import { WebVhDidRecordMetadataKeys } from '../../../dids/webVhTypes'
+import { zWebVhAttestedResource } from '../../../resources/attestedResource'
 import { WebVhAnonCredsRegistry } from '../WebVhAnonCredsRegistry'
 
 const issuerId = 'did:webvh:QmXysm9EF3kPH4fdCWf48YqCzREgiAe5nFXG3RCXaCShFX:id.test-suite.app:credo:01'
@@ -119,6 +120,50 @@ describe('WebVhAnonCredsRegistry assertionMethod signing', () => {
     )
 
     registry = new WebVhAnonCredsRegistry()
+  })
+
+  it('signs with unpublished created and updated DID keys without fetching a published log', async () => {
+    const registrar = new WebVhDidRegistrar()
+    const created = await registrar.create(
+      agentContext,
+      await createWebVhTestOptions(agentContext, 'unpublished.example.com')
+    )
+    if (created.didState.state !== 'finished') throw new Error('DID create failed')
+    const { did, didDocument } = created.didState
+    const fetch = vi
+      .spyOn(agentContext.config, 'fetch')
+      .mockRejectedValue(new Error('Unpublished DID must resolve from its local record while signing'))
+    const authoredSchema = { ...schema, issuerId: did }
+    const first = await registry.registerSchema(agentContext, { schema: authoredSchema })
+    expect(first.schemaState.state).toBe('finished')
+    expect(
+      await registry.verifyProof(
+        agentContext,
+        zWebVhAttestedResource.parse(first.registrationMetadata.attestedResource)
+      )
+    ).toBe(true)
+
+    const key = await agentContext.resolve(Kms.KeyManagementApi).createKey({ type: { kty: 'OKP', crv: 'Ed25519' } })
+    const method = didDocument.verificationMethod?.[0]
+    if (!method) throw new Error('Missing fixture verification method')
+    method.publicKeyMultibase = Kms.PublicJwk.fromPublicJwk(key.publicJwk).fingerprint
+    const updated = await registrar.update(agentContext, {
+      did,
+      didDocument,
+      options: {
+        keys: [{ didDocumentRelativeKeyId: '#assertion-key', kmsKeyId: key.keyId, kmsBackend: key.backend }],
+      },
+    })
+    expect(updated.didState.state).toBe('finished')
+    const second = await registry.registerSchema(agentContext, { schema: authoredSchema })
+    expect(second.schemaState.state).toBe('finished')
+    expect(
+      await registry.verifyProof(
+        agentContext,
+        zWebVhAttestedResource.parse(second.registrationMetadata.attestedResource)
+      )
+    ).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('round-trips caller-authored fragments and resolves a versioned registrar log', async () => {

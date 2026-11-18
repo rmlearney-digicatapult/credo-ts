@@ -10,7 +10,7 @@ import type {
   DidUpdateResult,
 } from '@credo-ts/core'
 
-import { CredoError, DidDocument, DidDocumentRole, DidRecord, DidRepository, parseDid } from '@credo-ts/core'
+import { CredoError, DidDocument, DidDocumentRole, DidRecord, DidRepository } from '@credo-ts/core'
 import {
   type CreateDIDOptions,
   createDID,
@@ -27,6 +27,7 @@ import {
   getWebVhControllerMetadata,
   getWebVhDidLog,
   getWebVhDidRecord,
+  getWebVhDomainTag,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
   validateWebVhControllerKeys,
@@ -71,19 +72,11 @@ export class WebVhDidRegistrar implements DidRegistrar {
     try {
       this.assertCompleteDocument(options.didDocument)
       const { keys: inputKeys, updateKeyKmsKeyIds, ...upstreamOptions } = options.options
-      const { address, paths, updateKeys } = upstreamOptions
+      const { updateKeys } = upstreamOptions
       if (!Array.isArray(inputKeys) || !updateKeyKmsKeyIds) {
         throw new CredoError('Create options require keys and updateKeyKmsKeyIds')
       }
-      const domain = [address, ...(paths ?? [])].join(':')
       const repository = agentContext.dependencyManager.resolve(DidRepository)
-      const existing = await repository.findSingleByQuery(agentContext, {
-        role: DidDocumentRole.Created,
-        domain,
-        method: 'webvh',
-      })
-      if (existing) throw new CredoError(`A record with domain "${address}" already exists.`)
-
       const keys = await validateWebVhDocumentKeys(agentContext, options.didDocument, inputKeys)
       const controllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
       const signer = createWebVhControllerSigner(agentContext, updateKeys, controllerKeys)
@@ -95,23 +88,13 @@ export class WebVhDidRegistrar implements DidRegistrar {
       })
       const didDocument = DidDocument.fromJSON(result.doc)
       const validatedKeys = await validateWebVhDocumentKeys(agentContext, didDocument, keys)
-      const returnedDomain = this.domainTag(result.did)
-      if (
-        returnedDomain !== domain &&
-        (await repository.findSingleByQuery(agentContext, {
-          role: DidDocumentRole.Created,
-          domain: returnedDomain,
-          method: 'webvh',
-        }))
-      ) {
-        throw new CredoError(`A record with domain "${returnedDomain}" already exists.`)
-      }
+      const domain = getWebVhDomainTag(result.did)
       const record = new DidRecord({
         did: result.did,
         didDocument,
         role: DidDocumentRole.Created,
         keys: validatedKeys,
-        tags: { domain: returnedDomain },
+        tags: { domain },
       })
       this.persistResult(record, result, controllerKeys)
       await repository.save(agentContext, record)
@@ -191,11 +174,6 @@ export class WebVhDidRegistrar implements DidRegistrar {
     if (!(document instanceof DidDocument) || !document.id) {
       throw new CredoError('notSupported: WebVH requires a complete DidDocument with an id')
     }
-  }
-
-  private domainTag(did: string) {
-    // Preserve the legacy domain[:path] tag using the location upstream actually returned.
-    return parseDid(did).id.split(':').slice(1).map(decodeURIComponent).join(':')
   }
 
   private persistResult(record: DidRecord, result: UpdateDIDResult, controllerKeys: WebVhUpdateKeyKmsKeyIds) {

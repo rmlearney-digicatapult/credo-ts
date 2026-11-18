@@ -12,6 +12,7 @@ import {
   type DIDResolutionMeta,
   deriveNextKeyHash,
   getWitnessRequirements,
+  parseDidWebvh,
   resolveDIDFromLog,
 } from 'didwebvh-ts'
 import { Subject } from 'rxjs'
@@ -72,27 +73,49 @@ describe('WebVhDidRegistrar integration', () => {
     const { did } = await create(await createWebVhTestOptions(agentContext, 'alice.example.com:8443', ['credo', '01']))
     expect(did).toMatch(/:alice\.example\.com%3A8443:credo:01$/)
     const record = await repository.getSingleByQuery(agentContext, { did })
-    expect(record.getTag('domain')).toBe('alice.example.com:8443:credo:01')
+    expect(record.getTag('domain')).toBe('alice.example.com%3A8443:credo:01')
   })
 
-  test('preserves the existing domain duplicate-query behavior', async () => {
-    await create()
-    const result = await registrar.create(agentContext, await createWebVhTestOptions(agentContext))
-    expect(result.didState).toEqual({
-      state: 'failed',
-      reason: 'unknownError: A record with domain "id.test-suite.app" already exists.',
-    })
+  test.each([
+    {
+      name: 'a port and a numeric path',
+      address: 'locations.example.com:8443',
+      paths: [],
+      otherPaths: ['8443'],
+      domain: 'locations.example.com%3A8443',
+      otherDomain: 'locations.example.com:8443',
+    },
+    {
+      name: 'an encoded colon and a path separator',
+      address: 'locations.example.com',
+      paths: ['a:b'],
+      otherPaths: ['a', 'b'],
+      domain: 'locations.example.com:a%3Ab',
+      otherDomain: 'locations.example.com:a:b',
+    },
+  ])('distinguishes $name in domain tags', async ({ address, paths, otherPaths, domain, otherDomain }) => {
+    const first = await create(await createWebVhTestOptions(agentContext, address, paths))
+    const record = await repository.getSingleByQuery(agentContext, { did: first.did })
+    expect(record.getTag('domain')).toBe(domain)
+    const second = await create(await createWebVhTestOptions(agentContext, 'locations.example.com', otherPaths))
+    expect((await repository.getSingleByQuery(agentContext, { did: second.did })).getTag('domain')).toBe(otherDomain)
+    expect(
+      (await registrar.update(agentContext, { did: first.did, didDocument: first.didDocument })).didState.state
+    ).toBe('finished')
+    expect((await repository.getById(agentContext, record.id)).getTag('domain')).toBe(domain)
+    expect(await repository.getAll(agentContext)).toHaveLength(2)
   })
 
-  test('uses the returned location for duplicate queries when address forms differ', async () => {
-    await create()
-    const result = await registrar.create(
-      agentContext,
-      await createWebVhTestOptions(agentContext, 'https://id.test-suite.app/')
-    )
-    expect(result.didState).toMatchObject({ state: 'failed', reason: expect.stringContaining('already exists') })
-    expect(await repository.getAll(agentContext)).toHaveLength(1)
-  })
+  test.each(['id.test-suite.app', 'https://id.test-suite.app/'])(
+    'allows different SCIDs at the same returned location using address %s',
+    async (address) => {
+      const first = await create()
+      const second = await create(await createWebVhTestOptions(agentContext, address))
+      expect(parseDidWebvh(first.did).scid).not.toBe(parseDidWebvh(second.did).scid)
+      const records = await repository.findByQuery(agentContext, { domain: 'id.test-suite.app', method: 'webvh' })
+      expect(records.map((record) => record.did).sort()).toEqual([first.did, second.did].sort())
+    }
+  )
 
   test('allows controller keys outside the document and uncontrolled document methods', async () => {
     const options = await createWebVhTestOptions(agentContext)
@@ -417,6 +440,28 @@ describe('WebVhDidRegistrar integration', () => {
     const record = await repository.getSingleByQuery(agentContext, { did: result.didState.did })
     expect(record.didDocument?.id).toBe(result.didState.did)
     expect(await repository.findSingleByQuery(agentContext, { did })).toBeNull()
+  })
+
+  test('allows moving to the same location as another SCID', async () => {
+    const destination = await create(await createWebVhTestOptions(agentContext, 'shared.example.com:8443', ['a:b']))
+    const options = await createWebVhTestOptions(agentContext, 'portable.example.com', ['a:b'])
+    options.options.portable = true
+    const { did, didDocument } = await create(options)
+    const original = await repository.getSingleByQuery(agentContext, { did })
+
+    const result = await registrar.update(agentContext, {
+      did,
+      didDocument,
+      options: { address: 'shared.example.com:8443' },
+    })
+    expect(result.didState.state).toBe('finished')
+    const moved = await repository.getById(agentContext, original.id)
+    expect(parseDidWebvh(moved.did).scid).toBe(parseDidWebvh(did).scid)
+    expect(parseDidWebvh(moved.did).scid).not.toBe(parseDidWebvh(destination.did).scid)
+    expect(moved.metadata.get<DIDLog>(WebVhDidRecordMetadataKeys.DidLog)).toHaveLength(2)
+    expect(
+      await repository.findByQuery(agentContext, { domain: 'shared.example.com%3A8443:a%3Ab', method: 'webvh' })
+    ).toHaveLength(2)
   })
 
   test('reports empty authorized update keys only when upstream requests the proof ID', () => {

@@ -10,12 +10,12 @@ import { createWebVhTestOptions } from './utils'
 describe('WebVH DID module', () => {
   let agent: Agent<ReturnType<typeof getWebVhModules>>
 
-  it('disables resolver shortcuts regardless of cache scope configuration', () => {
+  it('allows resolver shortcuts for unversioned DIDs with the configured cache scope', () => {
     const resolver = new WebVhDidResolver()
     const config = new DidsModuleConfig({ resolvers: [resolver] })
 
-    expect(resolver.allowsCaching).toBe(false)
-    expect(resolver.allowsLocalDidRecord).toBe(false)
+    expect(resolver.allowsCaching).toBe(true)
+    expect(resolver.allowsLocalDidRecord).toBe(true)
     expect(config.getCacheScope('webvh')).toBe('global')
     expect(new DidsModuleConfig({ cacheScope: { webvh: 'context' } }).getCacheScope('webvh')).toBe('context')
   })
@@ -39,7 +39,16 @@ describe('WebVH DID module', () => {
     if (created.didState.state !== 'finished') throw new Error('DID create failed')
     const { did, didDocument } = created.didState
     const fetch = vi.spyOn(agent.config, 'fetch').mockResolvedValue(new Response(null, { status: 404 }))
-    const unpublished = await agent.dids.resolve(did)
+    const stored = await agent.dids.resolve(did)
+    expect(stored.didDocument?.id).toBe(did)
+    expect(stored.didResolutionMetadata.servedFromDidRecord).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+    const publishedResolutionOptions = {
+      useCache: false,
+      persistInCache: false,
+      useLocalCreatedDidRecord: false,
+    }
+    const unpublished = await agent.dids.resolve(did, publishedResolutionOptions)
     expect(unpublished.didResolutionMetadata.error).toBeDefined()
     expect(unpublished.didDocument).toBeNull()
     const unpublishedLog = await agent.modules.webvh.getPublicationData(did)
@@ -49,7 +58,7 @@ describe('WebVH DID module', () => {
       const { log } = await agent.modules.webvh.getPublicationData(did)
       return new Response(log.map((entry) => JSON.stringify(entry)).join('\n'))
     })
-    const resolved = await agent.dids.resolve(did)
+    const resolved = await agent.dids.resolve(did, publishedResolutionOptions)
     expect(resolved.didDocument?.id).toBe(did)
     expect(resolved.didDocumentMetadata.versionId).toBe(created.didDocumentMetadata.versionId)
     const updated = await agent.dids.update({ did, didDocument })
@@ -58,11 +67,11 @@ describe('WebVH DID module', () => {
     expect(records).toHaveLength(1)
     const publication = await agent.modules.webvh.getPublicationData(did)
     expect(publication.log).toHaveLength(2)
-    const latest = await agent.dids.resolve(did)
+    const latest = await agent.dids.resolve(did, publishedResolutionOptions)
     expect(latest.didDocumentMetadata.versionId).toBe(publication.log[1].versionId)
     const deactivate = await agent.dids.deactivate({ did })
     expect(deactivate.didState.state).toBe('finished')
-    const deactivated = await agent.dids.resolve(did)
+    const deactivated = await agent.dids.resolve(did, publishedResolutionOptions)
     expect(deactivated.didDocumentMetadata.deactivated).toBe(true)
     expect(deactivated.didDocument).toBeNull()
     expect(fetch).toHaveBeenCalled()

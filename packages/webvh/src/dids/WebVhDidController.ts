@@ -15,6 +15,7 @@ import {
 import {
   type DIDLog,
   type DIDResolutionMeta,
+  parseDidWebvh,
   type Signer,
   type UpdateDIDOptions,
   type UpdateDIDResult,
@@ -24,6 +25,11 @@ import {
 import { WebVhDidCrypto } from './WebVhDidCrypto'
 import { WebVhDidCryptoSigner } from './WebVhDidCryptoSigner'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
+
+export function getWebVhDomainTag(did: string) {
+  const { domainComponent, pathSegments } = parseDidWebvh(did)
+  return [domainComponent, ...pathSegments.map((segment) => encodeURIComponent(segment))].join(':')
+}
 
 export async function getWebVhDidRecord(agentContext: AgentContext, did: string) {
   const record = await agentContext.dependencyManager.resolve(DidRepository).findSingleByQuery(agentContext, {
@@ -98,15 +104,14 @@ export async function persistWebVhDocumentWrite(
   result: UpdateDIDResult
 ) {
   const { record, controllerKeys, writerOptions } = prepared
+  const domain = getWebVhDomainTag(result.did)
   const didDocument = DidDocument.fromJSON(result.doc)
   const keys = await validateWebVhDocumentKeys(
     agentContext,
     didDocument,
     prepared.keys ?? retainWebVhDocumentKeys(record.didDocument, didDocument, record.keys ?? [])
   )
-  if (result.did !== record.did) {
-    record.setTags({ domain: parseDid(result.did).id.split(':').slice(1).map(decodeURIComponent).join(':') })
-  }
+  record.setTags({ domain })
   record.did = result.did
   record.didDocument = didDocument
   record.keys = keys

@@ -63,7 +63,7 @@ const agent = new Agent({
 await agent.initialize()
 ```
 
-An explicitly configured `WebVhDidResolver` and an existing registrar supporting `webvh` are preserved. Controller operations returning `didState.state: 'finished'` have signed and persisted local state only; required witnessing and publication remain application-owned. Publish logs and proofs before normal DID resolution.
+An explicitly configured `WebVhDidResolver` and an existing registrar supporting `webvh` are preserved. Controller operations returning `didState.state: 'finished'` have signed and persisted local state only; required witnessing and publication remain application-owned. Publish logs and proofs before other agents or explicit published-log resolution can resolve them.
 
 #### Resolving DID-Linked Resources With the WebVH API
 
@@ -158,7 +158,9 @@ Resolution preserves upstream document metadata, errors, messages, and `problemD
 
 Valid published deactivation is not a resolution error: upstream returns `didDocument: null` with `didDocumentMetadata.deactivated: true`. Check both `didResolutionMetadata.error` and `didDocumentMetadata.deactivated`; a null document alone does not distinguish deactivation from failure. Invalid deactivation history, including missing required witness approvals, retains upstream validation errors and details.
 
-All DID resolution uses published logs through upstream's `getResolver` registry and `did-resolver` dispatcher, including its WebVH parser hook and version selectors such as `?versionNumber=1`, `?versionId=...`, and `?versionTime=...`. Newly created or updated DIDs must be published before `agent.dids.resolve` sees them; stored documents and proofs are not substituted for published data. Generic core caching/local-document shortcuts and upstream dispatcher caching are disabled. All network retrieval, including resources and witness proofs, uses the agent's configured fetch and `fetchLimits`; set `fetchLimits.maxResponseBytes` on the agent rather than a WebVH-specific resolver limit.
+Unversioned `agent.dids.resolve(did)` calls allow Credo's configured cache and locally created DID records, so signing with a newly created or updated DID does not require publishing it first. DID URLs containing a query, including version selectors such as `?versionNumber=1`, `?versionId=...`, and `?versionTime=...`, bypass cache reads, cache writes, and local-record shortcuts. They resolve published logs through upstream's `getResolver` registry and `did-resolver` dispatcher, including its WebVH parser hook. Upstream dispatcher caching is disabled.
+
+To explicitly resolve published state for an unversioned DID, call `agent.dids.resolve(did, { useCache: false, persistInCache: false, useLocalCreatedDidRecord: false })`. Use this when checking publication, witness approvals, or published deactivation; a local document is not evidence that the log has been published or witnessed. All network retrieval, including resources and witness proofs, uses the agent's configured fetch and `fetchLimits`; set `fetchLimits.maxResponseBytes` on the agent rather than a WebVH-specific resolver limit.
 
 Use `agent.dids.resolve(didUrl)` for resolution. Direct `WebVhDidResolver.resolve` calls require Credo's parsed DID URL as the third argument so the original `didUrl` can be forwarded to upstream's dispatcher. The adapter does not interpret version selectors itself. Credo's resource dereferencing uses didwebvh-ts's `parseDidWebvhUrl` and `didWebvhToHttps` helpers; applications needing standalone DID parsing or conversion can import `parseDidWebvh`, `parseDidWebvhUrl`, and `didWebvhToHttps` directly from `didwebvh-ts`.
 
@@ -231,14 +233,16 @@ async getDidLog(@Res() res: Response) {
 
 #### Querying for Existing Records
 
-To retrieve an existing `did:webvh` record, you can query the repository by its domain and method:
+To retrieve `did:webvh` records at a publication location, query the repository by domain and method:
 
 ```typescript
-const webVhdDidRecord = await didRepository.findSingleByQuery(agentContext, {
+const webVhDidRecords = await didRepository.findByQuery(agentContext, {
   domain: 'issuer.example.com:issuers:01',
   method: 'webvh',
 })
 ```
+
+The `domain` tag uses the returned DID's encoded domain component and colon-separated encoded location paths. For example, port 8443 is tagged as `issuer.example.com%3A8443`, while a path segment `8443` is tagged as `issuer.example.com:8443`; embedded colons in paths remain `%3A`. This tag is non-unique: different SCIDs may share the same location. Credo does not enforce publication-location uniqueness.
 
 ### Registering AnonCreds Objects
 
