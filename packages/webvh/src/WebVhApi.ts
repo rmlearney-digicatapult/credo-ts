@@ -9,6 +9,7 @@ import {
   injectable,
 } from '@credo-ts/core'
 import {
+  type DIDDocument,
   type DIDLog,
   fetchWitnessProofs,
   type MigrateDIDOptions,
@@ -74,17 +75,21 @@ export class WebVhApi {
   }
 
   /**
-   * Returns detached copies of the stored log and witness-proof file for caller-managed publication.
+   * Returns detached copies of the stored log, witness-proof file and parallel did:web document for caller-managed
+   * publication.
    *
    * @param did Controlled WebVH DID.
-   * @returns Stored log and witness proofs, with an empty proof array when none are stored.
+   * @returns Stored log and witness proofs, with an empty proof array when none are stored, and `webDoc` for `did.json`
+   * when didwebvh-ts returned one from the latest write.
    */
   public async getPublicationData(did: string) {
     try {
       const record = await getWebVhDidRecord(this.agentContext, did)
+      const webDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc)
       return structuredClone({
         log: getWebVhDidLog(record),
         witnessProofs: record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ?? [],
+        ...(webDoc && { webDoc }),
       })
     } catch (error) {
       throw new CredoError(`Unable to retrieve WebVH publication data for '${did}'`, { cause: error })
@@ -92,7 +97,8 @@ export class WebVhApi {
   }
 
   /**
-   * Validates a supplied log independently of publication or local record storage.
+   * Validates a supplied log without reading local records or publishing it. When the log requires witness approvals
+   * and `witnessProofs` is omitted, the published witness-proof file is fetched.
    *
    * @param log DID log to validate, such as a log returned by getPublicationData.
    * @param options Upstream version selectors and optional witness-proof file.

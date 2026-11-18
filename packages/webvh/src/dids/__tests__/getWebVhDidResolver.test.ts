@@ -77,6 +77,20 @@ describe('getWebVhDidResolver', () => {
     )
   })
 
+  test('parses a resource served as application/ld+json as JSON', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: '1234' }), {
+          headers: { 'content-type': 'application/ld+json; charset=utf-8' },
+        })
+    )
+    const config = new AgentConfig({}, { ...agentDependencies, fetch })
+    const context = registerModules(new DidsModule({ resolvers: [new WebVhDidResolver()] }), config)
+    const resource = 'did:webvh:QmdmPkUdYzbr9txmx8gM2rsHPgr5L6m3gHjJGAf4vUFoGE:example.com/resources/1234'
+
+    await expect(new WebVhApi(context).resolveResource(resource)).resolves.toMatchObject({ content: { id: '1234' } })
+  })
+
   test('returns the resolver the WebVhModule adds when the DidsModule has none', () => {
     const agentContext = registerModules(new DidsModule())
 

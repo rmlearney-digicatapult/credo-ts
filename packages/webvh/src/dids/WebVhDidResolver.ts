@@ -64,9 +64,11 @@ export class WebVhDidResolver implements DidResolver {
       }
 
       const contentType = response.headers.get('content-type') || 'application/json'
+      const mediaType = contentType.split(';')[0].trim().toLowerCase()
       let content: Record<string, unknown> | unknown[] | string
 
-      if (contentType.includes('application/json')) {
+      // Structured JSON types such as application/ld+json use the +json suffix (RFC 6839).
+      if (mediaType === 'application/json' || mediaType.endsWith('+json')) {
         content = (await response.json()) as Record<string, unknown>
       } else {
         content = await response.text()

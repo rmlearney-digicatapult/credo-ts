@@ -66,6 +66,23 @@ describe('WebVhApi controller/witness bridges', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  test('returns the parallel did:web document from the latest write until the DID is deactivated', async () => {
+    const options = await createWebVhTestOptions(context)
+    options.options.alsoKnownAsWeb = true
+    const registrar = new WebVhDidRegistrar()
+    const created = await registrar.create(context, options)
+    if (created.didState.state !== 'finished') throw new Error('Fixture create failed')
+    const { did, didDocument } = created.didState
+    expect((await api.getPublicationData(did)).webDoc?.alsoKnownAs).toContain(did)
+
+    didDocument.alsoKnownAs = [...(didDocument.alsoKnownAs ?? []), 'did:example:other']
+    expect((await registrar.update(context, { did, didDocument })).didState.state).toBe('finished')
+    expect((await api.getPublicationData(did)).webDoc?.alsoKnownAs).toContain('did:example:other')
+
+    expect((await registrar.deactivate(context, { did })).didState.state).toBe('finished')
+    expect(await api.getPublicationData(did)).not.toHaveProperty('webDoc')
+  })
+
   test('supplies a KMS signer to upstream witness signing without fetch', async () => {
     const fetch = vi.spyOn(context.config, 'fetch')
     const key = await createWebVhTestKey(context)

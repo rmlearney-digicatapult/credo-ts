@@ -1,7 +1,11 @@
 import {
   CacheModuleConfig,
+  DidDocument,
   DidDocumentService,
   DidRepository,
+  DidResolverService,
+  DidsApi,
+  DidsModuleConfig,
   InjectionSymbols,
   InMemoryLruCache,
   Kms,
@@ -33,12 +37,15 @@ describe('WebVhDidRegistrar integration', () => {
 
   beforeEach(() => {
     registrar = new WebVhDidRegistrar()
+    const agentConfig = getAgentConfig('WebVhDidRegistrarTest')
     agentContext = getAgentContext({
-      agentConfig: getAgentConfig('WebVhDidRegistrarTest'),
+      agentConfig,
       registerInstances: [
         [InjectionSymbols.Stop$, new Subject<boolean>()],
         [InjectionSymbols.AgentDependencies, agentDependencies],
         [InjectionSymbols.StorageService, new InMemoryStorageService()],
+        [InjectionSymbols.Logger, agentConfig.logger],
+        [DidsModuleConfig, new DidsModuleConfig()],
         [CacheModuleConfig, new CacheModuleConfig({ cache: new InMemoryLruCache({ limit: 500 }) })],
       ],
     })
@@ -447,6 +454,64 @@ describe('WebVhDidRegistrar integration', () => {
     const record = await repository.getSingleByQuery(agentContext, { did: result.didState.did })
     expect(record.didDocument?.id).toBe(result.didState.did)
     expect(await repository.findSingleByQuery(agentContext, { did })).toBeNull()
+  })
+
+  describe('parallel did:web', () => {
+    const webDid = 'did:web:id.test-suite.app'
+
+    async function withWebAlias(address?: string) {
+      const options = await createWebVhTestOptions(agentContext, address)
+      options.options.alsoKnownAsWeb = true
+      return options
+    }
+
+    test('imports it with the did:webvh keys so the agent can sign as the did:web', async () => {
+      const invalidateCacheForDid = vi.spyOn(DidResolverService.prototype, 'invalidateCacheForDid')
+      const options = await withWebAlias()
+      const { did, didDocument } = await create(options)
+      const dids = agentContext.resolve(DidsApi)
+      const { publicJwk } = await dids.resolveVerificationMethodFromCreatedDidRecord(`${webDid}#assertion-key`)
+      expect(publicJwk.keyId).toBe(options.options.keys[0].kmsKeyId)
+      expect(invalidateCacheForDid).toHaveBeenCalledWith(agentContext, webDid)
+
+      didDocument.alsoKnownAs = [...(didDocument.alsoKnownAs ?? []), 'did:example:other']
+      expect((await registrar.update(agentContext, { did, didDocument })).didState.state).toBe('finished')
+      expect((await dids.resolveCreatedDidDocumentWithKeys(webDid)).didDocument.alsoKnownAs).toContain(
+        'did:example:other'
+      )
+    })
+
+    test('fails without storing when another did:webvh at the location provides it', async () => {
+      await create(await withWebAlias())
+      const result = await registrar.create(agentContext, await withWebAlias())
+      expect(result.didState).toMatchObject({
+        state: 'failed',
+        reason: expect.stringContaining(`The parallel did:web '${webDid}' already belongs to did:webvh`),
+      })
+      expect(await repository.findByQuery(agentContext, { method: 'webvh' })).toHaveLength(1)
+    })
+
+    test('takes over a did:web record the application created at the location', async () => {
+      const dids = agentContext.resolve(DidsApi)
+      await dids.import({ did: webDid, didDocument: new DidDocument({ id: webDid }) })
+      const { did } = await create(await withWebAlias())
+      expect((await dids.resolveCreatedDidDocumentWithKeys(webDid)).didDocument.alsoKnownAs).toContain(did)
+    })
+
+    test('imports the did:web of the new location when a portable DID moves', async () => {
+      const options = await withWebAlias()
+      options.options.portable = true
+      const { did, didDocument } = await create(options)
+      const moved = await registrar.update(agentContext, {
+        did,
+        didDocument,
+        options: { address: 'moved.example.com' },
+      })
+      if (moved.didState.state !== 'finished') throw new Error(`Move failed: ${JSON.stringify(moved.didState)}`)
+      const dids = agentContext.resolve(DidsApi)
+      const { didDocument: webDocument } = await dids.resolveCreatedDidDocumentWithKeys('did:web:moved.example.com')
+      expect(webDocument.alsoKnownAs).toContain(moved.didState.did)
+    })
   })
 
   test('allows moving to the same location as another SCID', async () => {

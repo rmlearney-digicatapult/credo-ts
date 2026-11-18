@@ -164,7 +164,7 @@ To explicitly resolve published state for an unversioned DID, call `agent.dids.r
 
 Use `agent.dids.resolve(didUrl)` for resolution. Direct `WebVhDidResolver.resolve` calls require Credo's parsed DID URL as the third argument so the original `didUrl` can be forwarded to upstream's dispatcher. The adapter does not interpret version selectors itself. Credo's resource dereferencing uses didwebvh-ts's `parseDidWebvhUrl` and `didWebvhToHttps` helpers; applications needing standalone DID parsing or conversion can import `parseDidWebvh`, `parseDidWebvhUrl`, and `didWebvhToHttps` directly from `didwebvh-ts`.
 
-To validate an unpublished log explicitly, call `agent.modules.webvh.resolveDIDFromLog(log, { witnessProofs })`, passing any required proofs. It delegates log validation to upstream and returns a Credo document with upstream resolution metadata. Optional upstream version selectors are supported. This does not publish or store the log.
+To validate an unpublished log explicitly, call `agent.modules.webvh.resolveDIDFromLog(log, { witnessProofs })`, passing any required proofs. If you omit `witnessProofs` for a log that requires witness approvals, upstream fetches the published `did-witness.json`. It delegates log validation to upstream and returns a Credo document with upstream resolution metadata. Optional upstream version selectors are supported. This does not publish or store the log.
 
 Logs declaring did:webvh:0.5, malformed SCIDs, raw-Unicode DIDs, and single-label hosts such as `localhost` are rejected upstream. Re-issue affected DIDs at a fully qualified host using `create`; they cannot be fixed by changing local fixtures. Witness-list replacements written by 2.7.3/2.7.4 that fail the previous-list approval rule remain rejected, as they already were in 2.8.0. Existing valid percent-encoded U-label logs continue resolving; new DIDs use canonical A-label hosts. On runtimes without IDNA support, supply A-label addresses.
 
@@ -175,11 +175,16 @@ The registrar persists every completed lifecycle operation in its existing `DidR
 Use the WebVH API to retrieve detached publication data and persist the complete witness proof file collected by the application:
 
 ```typescript
-const { log, witnessProofs } = await agent.modules.webvh.getPublicationData(publicDid)
-// Serialize log entries as JSONL for did.jsonl, and witnessProofs as JSON for did-witness.json.
+const { log, witnessProofs, webDoc } = await agent.modules.webvh.getPublicationData(publicDid)
+// Serialize log entries as JSONL for did.jsonl, witnessProofs as JSON for did-witness.json,
+// and webDoc, when present, as JSON for did.json.
 
 await agent.modules.webvh.storeWitnessProofs(publicDid, collectedWitnessProofs)
 ```
+
+`webDoc` is the parallel did:web document that didwebvh-ts returned from the latest create, update or migration. It does so when the DID was created with `alsoKnownAsWeb: true` or the document lists a did:web alias. Deactivation returns none, so delete a published `did.json` when `webDoc` is absent.
+
+Credo also imports each returned `webDoc` with `agent.dids.import`, using the KMS keys of the did:webvh document, so the agent can resolve the did:web locally and sign as it. A move or migration imports the did:web of the new location. If another did:webvh at the same location already provides the did:web, the write fails before anything is stored, because only one `did.json` can be published there. A did:web record the application created at that location is replaced, and Credo logs a warning. Credo doesn't yet delete a did:web record that no longer applies, for example after deactivation or a move; it logs a warning and keeps the record.
 
 `storeWitnessProofs` replaces the entire stored proof file; it does not append or merge. Include proofs for earlier log entries that remain required. Passing `[]` clears the file. It does not change the DID log or claim that witness requirements are satisfied. The application handles witness discovery, requests, response collection, verification where needed, and publication.
 

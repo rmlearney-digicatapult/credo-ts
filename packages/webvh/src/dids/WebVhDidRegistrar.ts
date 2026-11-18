@@ -15,6 +15,7 @@ import {
   type CreateDIDOptions,
   createDID,
   type DeactivateDIDOptions,
+  type DIDDocument,
   deactivateDID,
   defaultVerifier,
   type UpdateDIDOptions,
@@ -23,14 +24,17 @@ import {
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 import {
+  assertWebVhWebDocAvailable,
   createWebVhControllerSigner,
   failedWebVhRegistration,
   getWebVhControllerMetadata,
   getWebVhDidLog,
   getWebVhDidRecord,
   getWebVhDomainTag,
+  importWebVhWebDoc,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
+  setWebVhWebDoc,
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
 } from './WebVhDidController'
@@ -86,6 +90,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
         signer,
         verifier: defaultVerifier,
       })
+      await assertWebVhWebDocAvailable(agentContext, result.did, result.webDoc)
       const didDocument = DidDocument.fromJSON(result.doc)
       const validatedKeys = await validateWebVhDocumentKeys(agentContext, didDocument, keys)
       const domain = getWebVhDomainTag(result.did)
@@ -98,6 +103,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
       })
       this.persistResult(record, result, controllerKeys)
       await repository.save(agentContext, record)
+      await importWebVhWebDoc(agentContext, result.did, undefined, result.webDoc, validatedKeys)
       return this.finished(result, didDocument)
     } catch (error) {
       return this.failed(agentContext, 'create', error)
@@ -160,10 +166,12 @@ export class WebVhDidRegistrar implements DidRegistrar {
         fetch: agentContext.config.fetch.bind(agentContext.config),
       })
       const didDocument = DidDocument.fromJSON(result.doc)
+      const previousWebDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc) ?? undefined
       this.persistResult(record, result, controllerKeys)
       if (options.options?.witnessProofs)
         record.metadata.set(WebVhDidRecordMetadataKeys.WitnessProofs, options.options.witnessProofs)
       await agentContext.dependencyManager.resolve(DidRepository).update(agentContext, record)
+      await importWebVhWebDoc(agentContext, result.did, previousWebDoc, undefined, record.keys ?? [])
       return this.finished(result, didDocument)
     } catch (error) {
       return this.failed(agentContext, 'deactivate', error)
@@ -182,6 +190,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
     record.metadata.set(WebVhDidRecordMetadataKeys.DidLog, result.log)
     record.metadata.set(WebVhDidRecordMetadataKeys.ControllerMetadata, result.meta)
     record.metadata.set(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds, controllerKeys)
+    setWebVhWebDoc(record, result.webDoc)
   }
 
   private finished(result: UpdateDIDResult, didDocument: DidDocument): DidCreateResult {
