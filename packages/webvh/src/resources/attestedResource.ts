@@ -31,10 +31,10 @@ export const zWebVhAttestedResource = z
     ...resource,
     type: Array.isArray(type) ? type : [type],
   }))
+  .refine((resource) => resource.type.includes('AttestedResource'), { message: 'Missing AttestedResource type' })
 export type WebVhAttestedResource = z.output<typeof zWebVhAttestedResource>
 export type WebVhAttestedResourceInput = z.input<typeof zWebVhAttestedResource>
 
 export function isWebVhAttestedResource(value: unknown): value is WebVhAttestedResourceInput {
-  const result = zWebVhAttestedResource.safeParse(value)
-  return result.success && result.data.type.includes('AttestedResource')
+  return zWebVhAttestedResource.safeParse(value).success
 }

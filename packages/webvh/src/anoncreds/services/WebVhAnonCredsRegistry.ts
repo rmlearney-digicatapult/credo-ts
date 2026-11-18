@@ -82,21 +82,23 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
    */
   public readonly supportedIdentifier = /^did:webvh:.*/
 
-  /**
-   * Resolves a resource using the WebVhDidResolver and performs common validation steps.
-   *
-   * @param agentContext The agent context.
-   * @param resourceId The DID URI of the resource to resolve.
-   * @param resourceTypeString A descriptive string for the resource type (e.g., 'schema', 'credential definition') used in logs/errors.
-   * @returns The parsed and validated resource object and the original resolution result.
-   * @throws {CredoError} If resolution, parsing, or validation fails.
-   */
   private _digestMultibase(value: string) {
     const valueBytes = TypedArrayEncoder.fromUtf8String(value)
     const digestMultihash = MultiHashEncoder.encode(valueBytes, 'sha-256')
     const digestMultibase = MultiBaseEncoder.encode(digestMultihash, 'base58btc')
     return digestMultibase
   }
+
+  /**
+   * Resolves an attested resource and validates its ID, type, content digest, issuer and proof.
+   *
+   * @param agentContext The agent context.
+   * @param resourceId The DID URL of the resource to resolve.
+   * @param resourceTypeString A descriptive string for the resource type (e.g., 'schema', 'credential definition') used in logs/errors.
+   * @param contentSchema Schema of the content the caller expects.
+   * @returns The parsed resource, its parsed content and the original resolution result.
+   * @throws {CredoError} If resolution, parsing, or validation fails.
+   */
   private async _resolveAndValidateAttestedResource<Content extends { issuerId: string }>(
     agentContext: AgentContext,
     resourceId: string,
@@ -107,113 +109,83 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
     content: Content
     resolutionResult: DidResourceResolutionResult
   }> {
+    let parsedResourceUrl: ReturnType<typeof parseDidWebvhUrl>
     try {
-      const webvhDidResolver = getWebVhDidResolver(agentContext)
-      if (!this.supportedIdentifier.test(resourceId))
-        throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`)
-
-      let parsedResourceUrl: ReturnType<typeof parseDidWebvhUrl>
-      try {
-        parsedResourceUrl = parseDidWebvhUrl(resourceId)
-      } catch (error) {
-        throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`, {
-          cause: error instanceof Error ? error : undefined,
-        })
-      }
-
-      const resourcePathMatch = parsedResourceUrl.path?.match(/^\/resources\/([^/]+)$/)
-      if (parsedResourceUrl.query !== undefined || parsedResourceUrl.fragment !== undefined || !resourcePathMatch) {
-        throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`)
-      }
-      const expectedMultibaseHash = resourcePathMatch[1]
-
-      agentContext.config.logger.trace(
-        `Attempting to resolve ${resourceTypeString} resource '${resourceId}' via did:webvh resolver`
-      )
-
-      const resolutionResult = await webvhDidResolver.resolveResource(agentContext, resourceId)
-
-      if (!resolutionResult) {
-        throw new CredoError(`Resource resolution returned null/undefined for ${resourceId}`)
-      }
-
-      if ('error' in resolutionResult || !('content' in resolutionResult)) {
-        throw new CredoError(
-          `Resource ${resourceId} could not be resolved or is missing data. Error: ${resolutionResult.error || 'unknown'} - ${resolutionResult.message || 'no message'}`
-        )
-      }
-
-      let resourceObject: WebVhAttestedResource
-      let content: Content
-      try {
-        agentContext.config.logger.trace(
-          `Parsing resource data: ${JSON.stringify(resolutionResult.content).substring(0, 200)}...`
-        )
-        resourceObject = zWebVhAttestedResource.parse(resolutionResult.content)
-        content = contentSchema.parse(resourceObject.content)
-      } catch (parseError) {
-        const cause = parseError instanceof Error ? parseError : undefined
-        agentContext.config.logger.error(`Failed to parse resource data for ${resourceId}`, {
-          error: parseError instanceof Error ? parseError.message : String(parseError),
-          stack: parseError instanceof Error ? parseError.stack : undefined,
-        })
-        throw new CredoError(
-          `Failed to parse resource data for ${resourceId}: ${
-            parseError instanceof Error ? parseError.message : String(parseError)
-          }`,
-          { cause }
-        )
-      }
-      // Parsing normalises fields such as `type`, so the proof and digest are checked on the resource as fetched.
-      const signedResource = resolutionResult.content as WebVhAttestedResourceInput
-
-      // --- Attested Resource Validation steps ---
-
-      // 1. Data Model Verification
-      if (!resourceObject.type.includes('AttestedResource')) {
-        throw new CredoError('Missing AttestedResource type.')
-      }
-      agentContext.config.logger.trace(`Resource ${resourceId} attestation found.`)
-
-      const verificationMethodDid = parseDid(resourceObject.proof.verificationMethod).did
-      if (verificationMethodDid !== parsedResourceUrl.did) {
-        throw new CredoError(
-          `Proof verification method DID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${verificationMethodDid}`
-        )
-      }
-
-      // 2. DataIntegrityProof Verification
-      const verified = await this.verifyProof(agentContext, signedResource)
-      if (!verified) {
-        agentContext.config.logger.trace('Resolved resource proof is invalid.')
-        throw new CredoError('Resolved resource proof is invalid.')
-      }
-      agentContext.config.logger.trace(`Resource ${resourceId} proof validated.`)
-
-      if (content.issuerId !== parsedResourceUrl.did) {
-        throw new CredoError(
-          `Issuer ID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${content.issuerId}`
-        )
-      }
-
-      // 3. Resource Digest Multibase Verification
-      if (resourceObject.id !== resourceId) {
-        throw new CredoError(`ID mismatch ${resourceObject.id} != ${resourceId}`)
-      }
-      const digestMultibase = this._digestMultibase(canonicalize(signedResource.content))
-
-      if (digestMultibase !== expectedMultibaseHash) {
-        throw new CredoError(
-          `Content hash mismatch for ${resourceId}. Expected: ${expectedMultibaseHash}, Actual: ${digestMultibase}`
-        )
-      }
-      agentContext.config.logger.trace(`Resource ${resourceId} content hash matches filename.`)
-
-      return { resourceObject, content, resolutionResult }
+      parsedResourceUrl = parseDidWebvhUrl(resourceId)
     } catch (error) {
-      agentContext.config.logger.error('Error in did:webvh _resolveAndValidateAttestedResource:', error)
-      throw error
+      throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`, {
+        cause: error instanceof Error ? error : undefined,
+      })
     }
+
+    const resourcePathMatch = parsedResourceUrl.path?.match(/^\/resources\/([^/]+)$/)
+    if (parsedResourceUrl.query !== undefined || parsedResourceUrl.fragment !== undefined || !resourcePathMatch) {
+      throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`)
+    }
+    const expectedMultibaseHash = resourcePathMatch[1]
+
+    agentContext.config.logger.trace(
+      `Attempting to resolve ${resourceTypeString} resource '${resourceId}' via did:webvh resolver`
+    )
+
+    const resolutionResult = await getWebVhDidResolver(agentContext).resolveResource(agentContext, resourceId)
+
+    if ('error' in resolutionResult || !('content' in resolutionResult)) {
+      throw new CredoError(
+        `Resource ${resourceId} could not be resolved or is missing data. Error: ${resolutionResult.error || 'unknown'} - ${resolutionResult.message || 'no message'}`
+      )
+    }
+
+    let resourceObject: WebVhAttestedResource
+    let content: Content
+    try {
+      agentContext.config.logger.trace(
+        `Parsing resource data: ${JSON.stringify(resolutionResult.content).substring(0, 200)}...`
+      )
+      resourceObject = zWebVhAttestedResource.parse(resolutionResult.content)
+      content = contentSchema.parse(resourceObject.content)
+    } catch (parseError) {
+      throw new CredoError(
+        `Failed to parse resource data for ${resourceId}: ${
+          parseError instanceof Error ? parseError.message : String(parseError)
+        }`,
+        { cause: parseError instanceof Error ? parseError : undefined }
+      )
+    }
+    // Parsing normalises fields such as `type`, so the proof and digest are checked on the resource as fetched.
+    const signedResource = resolutionResult.content as WebVhAttestedResourceInput
+
+    // These checks need no network access, so they run before the proof check resolves the issuer DID.
+    const verificationMethodDid = parseDid(resourceObject.proof.verificationMethod).did
+    if (verificationMethodDid !== parsedResourceUrl.did) {
+      throw new CredoError(
+        `Proof verification method DID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${verificationMethodDid}`
+      )
+    }
+
+    if (content.issuerId !== parsedResourceUrl.did) {
+      throw new CredoError(
+        `Issuer ID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${content.issuerId}`
+      )
+    }
+
+    if (resourceObject.id !== resourceId) {
+      throw new CredoError(`ID mismatch ${resourceObject.id} != ${resourceId}`)
+    }
+    const digestMultibase = this._digestMultibase(canonicalize(signedResource.content))
+    if (digestMultibase !== expectedMultibaseHash) {
+      throw new CredoError(
+        `Content hash mismatch for ${resourceId}. Expected: ${expectedMultibaseHash}, Actual: ${digestMultibase}`
+      )
+    }
+    agentContext.config.logger.trace(`Resource ${resourceId} content hash matches filename.`)
+
+    if (!(await this.verifyProof(agentContext, signedResource))) {
+      throw new CredoError('Resolved resource proof is invalid.')
+    }
+    agentContext.config.logger.trace(`Resource ${resourceId} proof validated.`)
+
+    return { resourceObject, content, resolutionResult }
   }
 
   public async getSchema(agentContext: AgentContext, schemaId: string): Promise<GetSchemaReturn> {
@@ -362,9 +334,6 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
     timestamp: number
   ): Promise<GetRevocationStatusListReturn> {
     try {
-      if (!revocationRegistryId.startsWith('did:webvh:'))
-        throw new CredoError(`Invalid revocationRegistryId: ${revocationRegistryId}`)
-
       agentContext.config.logger.trace(
         `Attempting to resolve revocation status list resource for '${revocationRegistryId}' at timestamp ${timestamp} via did:webvh resolver`
       )
@@ -383,7 +352,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
           (entry): entry is WebVhAttestedResourceLink & { timestamp: number } => typeof entry.timestamp === 'number'
         )
         .sort((a, b) => a.timestamp - b.timestamp)
-      if (!revocationEntries || revocationEntries.length === 0) {
+      if (revocationEntries.length === 0) {
         throw new CredoError('No revocation entries found.')
       }
 
@@ -403,10 +372,6 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
         'revocation status list entry',
         zWebVhStatusListContent
       )
-
-      if (!revocationEntryResourceObject) {
-        throw new CredoError('No revocation entry found for the given timestamp.')
-      }
 
       return {
         // The signed status list has no timestamp, so it comes from the link that selected the entry.

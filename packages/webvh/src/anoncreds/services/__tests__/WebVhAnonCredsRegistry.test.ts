@@ -330,6 +330,8 @@ describe('WebVhAnonCredsRegistry', () => {
         },
         schemaMetadata: {},
       })
+      // The free checks run before the proof check, which resolves the issuer DID.
+      expect(WebVhAnonCredsRegistry.prototype.verifyProof).not.toHaveBeenCalled()
     })
 
     it('should return resolutionMetadata with error if parsed content is missing required fields', async () => {
