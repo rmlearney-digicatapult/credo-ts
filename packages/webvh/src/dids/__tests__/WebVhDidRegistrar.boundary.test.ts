@@ -91,6 +91,7 @@ describe('WebVhDidRegistrar adapter boundary', () => {
     didDocument.service = [new DidDocumentService({ id: '#new', type: 'Test', serviceEndpoint: 'https://example.com' })]
     didDocument.assertionMethod = undefined
     const updateDID = vi.spyOn(webvh, 'updateDID')
+    const resolveDIDFromLog = vi.spyOn(webvh, 'resolveDIDFromLog')
     const result = await registrar.update(agentContext, {
       did,
       didDocument,
@@ -110,6 +111,7 @@ describe('WebVhDidRegistrar adapter boundary', () => {
     )
     expect(updateDID.mock.calls[0][0]).not.toHaveProperty('keys')
     expect(updateDID.mock.calls[0][0]).not.toHaveProperty('updateKeyKmsKeyIds')
+    expect(resolveDIDFromLog).not.toHaveBeenCalled()
     expect(webvh.migrateDID).not.toHaveBeenCalled()
   })
 
@@ -118,6 +120,7 @@ describe('WebVhDidRegistrar adapter boundary', () => {
     const created = await registrar.create(agentContext, options)
     if (created.didState.state !== 'finished') throw new Error('Fixture create failed')
     const deactivateDID = vi.spyOn(webvh, 'deactivateDID')
+    const resolveDIDFromLog = vi.spyOn(webvh, 'resolveDIDFromLog')
     const result = await registrar.deactivate(agentContext, { did: created.didState.did })
     expect(result.didState.state).toBe('finished')
     expect(deactivateDID).toHaveBeenCalledWith(expect.objectContaining({ fetch: expect.any(Function) }))
@@ -125,6 +128,7 @@ describe('WebVhDidRegistrar adapter boundary', () => {
     const record = await agentContext.resolve(DidRepository).getSingleByQuery(agentContext, { did: returned.did })
     expect(record.metadata.get(WebVhDidRecordMetadataKeys.DidLog)).toEqual(returned.log)
     expect(result.didDocumentMetadata).toEqual(returned.meta)
+    expect(resolveDIDFromLog).not.toHaveBeenCalled()
   })
 
   test('migration uses the upstream migration writer and persists its returned identity and log', async () => {

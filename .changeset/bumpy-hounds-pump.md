@@ -8,7 +8,7 @@ Upgrade `didwebvh-ts` to 3.2.0 (requires Node.js >=22.12.0) and use its exported
 - Automatically register DID adapters through `WebVhModule`, preserving explicitly configured adapters.
 - Add deactivation, publication-data/proof storage, KMS-backed witness signing, proof verification/fetching, unpublished-log resolution, and portable U-label migration via `WebVhApi.migrate`. Applications remain responsible for witness coordination and publication; finished operations indicate local persistence only.
 - `agent.dids.*` supports ordinary DID create, resolve, update, and deactivate operations; `agent.modules.webvh.*` supports WebVH-specific controller and witness agent actions, resources, and migration (`webvh` is the configured module key).
-- Resolve published logs through upstream with version selectors and validation metadata/errors preserved; disable caching and local-record shortcuts. Valid deactivation returns a null document with `deactivated: true`.
+- Resolve published logs through upstream with version selectors and validation metadata/errors preserved. Use cache and local-record shortcuts for unversioned DIDs; query selectors bypass them. Valid deactivation returns a null document with `deactivated: true`.
 - Fix resource URL conversion and replace `WebVhDidResolverOptions.maxResourceBytes` with agent `fetchLimits.maxResponseBytes`.
 - Keep DID log typing aligned with `didwebvh-ts` and limit public resource exports to the attested-resource models and guard; storage metadata and parsing helpers remain internal.
 

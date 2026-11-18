@@ -14,7 +14,7 @@ import {
 } from '@credo-ts/core'
 import {
   type DIDLog,
-  resolveDIDFromLog,
+  type DIDResolutionMeta,
   type UpdateDIDOptions,
   type UpdateDIDResult,
   type WitnessProofFileEntry,
@@ -40,23 +40,24 @@ export function getWebVhDidLog(record: DidRecord) {
   return log
 }
 
-export async function resolveWebVhControllerState(
-  agentContext: AgentContext,
-  record: DidRecord,
-  witnessProofs?: WitnessProofFileEntry[]
-) {
-  const result = await resolveDIDFromLog(getWebVhDidLog(record), {
-    verifier: new WebVhDidCrypto(agentContext),
-    fetch: agentContext.config.fetch.bind(agentContext.config),
-    witnessProofs:
-      witnessProofs ??
-      record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
-      undefined,
-  })
-  if (result.didResolutionMetadata.error) {
-    throw new CredoError(result.didResolutionMetadata.message ?? result.didResolutionMetadata.error)
+export function getWebVhControllerMetadata(record: DidRecord): DIDResolutionMeta {
+  const metadata = record.metadata.get<DIDResolutionMeta>(WebVhDidRecordMetadataKeys.ControllerMetadata)
+  if (!metadata) {
+    throw new CredoError(`unknownError: controlled DID '${record.did}' has no persisted controller metadata`)
   }
-  return result
+  return metadata
+}
+
+export function authorizedUpdateKeys(state: DIDResolutionMeta, inputUpdateKeys?: string[]) {
+  const updateKeys = state.prerotation ? inputUpdateKeys : state.updateKeys
+  if (!Array.isArray(updateKeys) || !updateKeys.every((key): key is string => typeof key === 'string')) {
+    throw new CredoError(
+      state.prerotation
+        ? 'updateKeys must be provided while pre-rotation is active'
+        : 'unknownError: controller metadata has no authenticated update keys'
+    )
+  }
+  return updateKeys
 }
 
 export async function prepareWebVhDocumentWrite(
@@ -73,7 +74,7 @@ export async function prepareWebVhDocumentWrite(
   }
   const record = await getWebVhDidRecord(agentContext, did)
   const { keys, updateKeyKmsKeyIds, ...upstreamOptions } = input
-  const state = await resolveWebVhControllerState(agentContext, record, input.witnessProofs)
+  const state = getWebVhControllerMetadata(record)
   const validatedControllerKeys = updateKeyKmsKeyIds
     ? await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
     : undefined
@@ -82,10 +83,7 @@ export async function prepareWebVhDocumentWrite(
     ...validatedControllerKeys?.mappings,
   }
   const validatedKeys = keys ? await validateWebVhDocumentKeys(agentContext, didDocument, keys) : undefined
-  const authorizedKeys = state.didDocumentMetadata.prerotation ? input.updateKeys : state.didDocumentMetadata.updateKeys
-  if (!Array.isArray(authorizedKeys) || !authorizedKeys.every((key): key is string => typeof key === 'string')) {
-    throw new CredoError('updateKeys must be provided while pre-rotation is active')
-  }
+  const authorizedKeys = authorizedUpdateKeys(state, input.updateKeys)
   const signer = await selectWebVhControllerSigner(
     agentContext,
     authorizedKeys,

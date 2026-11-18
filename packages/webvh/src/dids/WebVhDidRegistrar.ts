@@ -22,12 +22,13 @@ import {
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 import {
+  authorizedUpdateKeys,
   failedWebVhRegistration,
+  getWebVhControllerMetadata,
   getWebVhDidLog,
   getWebVhDidRecord,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
-  resolveWebVhControllerState,
   selectWebVhControllerSigner,
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
@@ -167,11 +168,8 @@ export class WebVhDidRegistrar implements DidRegistrar {
   ): Promise<DidDeactivateResult> {
     try {
       const record = await getWebVhDidRecord(agentContext, options.did)
-      const state = await resolveWebVhControllerState(agentContext, record, options.options?.witnessProofs)
-      const updateKeys = state.didDocumentMetadata.updateKeys
-      if (!Array.isArray(updateKeys) || !updateKeys.every((key): key is string => typeof key === 'string')) {
-        throw new CredoError(`unknownError: controlled DID '${options.did}' has no authenticated update keys`)
-      }
+      const state = getWebVhControllerMetadata(record)
+      const updateKeys = authorizedUpdateKeys(state)
       const controllerKeys =
         record.metadata.get<WebVhUpdateKeyKmsKeyIds>(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds) ?? {}
       const signer = await selectWebVhControllerSigner(agentContext, updateKeys, controllerKeys)

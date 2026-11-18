@@ -236,7 +236,7 @@ describe('WebVhDidRegistrar integration', () => {
     expect(log?.at(-1)?.proof?.[0].verificationMethod).toBe(`did:key:${next.multikey}#${next.multikey}`)
   })
 
-  test('signs pre-rotation with the committed replacement key, then deactivates separately', async () => {
+  test('clears pre-rotation with the committed replacement key before separate deactivation', async () => {
     const options = await createWebVhTestOptions(agentContext)
     const next = await createWebVhTestKey(agentContext)
     options.options.nextKeyHashes = [await deriveNextKeyHash(next.multikey)]
@@ -261,7 +261,12 @@ describe('WebVhDidRegistrar integration', () => {
     expect(deactivated.didState.state).toBe('finished')
     expect(deactivated.didDocumentMetadata.deactivated).toBe(true)
     const record = await repository.getSingleByQuery(agentContext, { did })
-    expect(record.metadata.get(WebVhDidRecordMetadataKeys.DidLog)).toHaveLength(3)
+    const log = record.metadata.get<DIDLog>(WebVhDidRecordMetadataKeys.DidLog)
+    expect(log).toHaveLength(3)
+    expect(log?.[1]?.proof?.[0].verificationMethod).toBe(`did:key:${next.multikey}#${next.multikey}`)
+    expect(record.metadata.get(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds)).toMatchObject({
+      [next.multikey]: { keyId: next.keyId, kmsBackend: next.kmsBackend },
+    })
     expect(record.metadata.get<DIDResolutionMeta>(WebVhDidRecordMetadataKeys.ControllerMetadata)?.updateKeys).toEqual(
       []
     )
