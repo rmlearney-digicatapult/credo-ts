@@ -1,78 +1,43 @@
-import { JsonTransformer } from '@credo-ts/core'
-import { Expose, Transform, Type } from 'class-transformer'
-import { ArrayMinSize, IsArray, IsObject, IsOptional, IsString } from 'class-validator'
-import { WebVhAttestedResource } from '../../resources'
+import { z } from 'zod'
 
-export class WebVhSchemaContent {
-  @IsArray()
-  @IsString({ each: true })
-  @ArrayMinSize(1)
-  @Type(() => String)
-  public attrNames!: string[]
+const zWebVhSchemaContent = z.looseObject({
+  attrNames: z.array(z.string()).min(1),
+  name: z.string(),
+  version: z.string(),
+  issuerId: z.string().nullish(),
+})
+type WebVhSchemaContent = z.output<typeof zWebVhSchemaContent>
 
-  @IsString()
-  public name!: string
+const zWebVhCredDefContent = z.looseObject({
+  issuerId: z.string(),
+  schemaId: z.string(),
+  type: z.string(),
+  tag: z.string(),
+  value: z.record(z.string(), z.unknown()),
+})
+type WebVhCredDefContent = z.output<typeof zWebVhCredDefContent>
 
-  @IsString()
-  public version!: string
+const zWebVhRevRegDefContent = z.looseObject({
+  issuerId: z.string(),
+  revocDefType: z.string(),
+  credDefId: z.string(),
+  tag: z.string(),
+  value: z.record(z.string(), z.unknown()),
+})
+type WebVhRevRegDefContent = z.output<typeof zWebVhRevRegDefContent>
+const zWebVhUnknownContent = z.record(z.string(), z.unknown())
 
-  @IsOptional()
-  @IsString()
-  public issuerId?: string
-}
+export type WebVhAnonCredsContent =
+  | WebVhSchemaContent
+  | WebVhCredDefContent
+  | WebVhRevRegDefContent
+  | Record<string, unknown>
 
-export class WebVhCredDefContent {
-  @IsString()
-  public issuerId!: string
+export function parseWebVhAnonCredsContent(value: unknown): WebVhAnonCredsContent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return zWebVhUnknownContent.parse(value)
+  if ('attrNames' in value) return zWebVhSchemaContent.parse(value)
+  if ('schemaId' in value) return zWebVhCredDefContent.parse(value)
+  if ('revocDefType' in value) return zWebVhRevRegDefContent.parse(value)
 
-  @IsString()
-  public schemaId!: string
-
-  @IsString()
-  public type!: string
-
-  @IsString()
-  public tag!: string
-
-  @IsObject()
-  public value!: Record<string, unknown>
-}
-
-export class WebVhRevRegDefContent {
-  @IsString()
-  public issuerId!: string
-
-  @IsString()
-  public revocDefType!: string
-
-  @IsString()
-  public credDefId!: string
-
-  @IsString()
-  public tag!: string
-
-  @IsObject()
-  public value!: {
-    publicKeys: { accumKey: { z: string } }
-    maxCredNum: number
-    tailsLocation: string
-    tailsHash: string
-  }
-}
-
-export class WebVhAnonCredsResource extends WebVhAttestedResource {
-  @Expose()
-  @Transform(({ value }) => {
-    if (value && 'attrNames' in value) {
-      return JsonTransformer.fromJSON(value, WebVhSchemaContent)
-    }
-    if (value && 'schemaId' in value) {
-      return JsonTransformer.fromJSON(value, WebVhCredDefContent)
-    }
-    if (value && 'revocDefType' in value) {
-      return JsonTransformer.fromJSON(value, WebVhRevRegDefContent)
-    }
-    return value
-  })
-  public content!: WebVhSchemaContent | WebVhCredDefContent | WebVhRevRegDefContent | Record<string, unknown>
+  return zWebVhUnknownContent.parse(value)
 }

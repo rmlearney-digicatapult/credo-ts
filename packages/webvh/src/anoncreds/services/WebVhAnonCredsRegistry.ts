@@ -41,7 +41,7 @@ import {
 import { canonicalize } from 'json-canonicalize'
 import { getWebVhDidResolver } from '../../dids/getWebVhDidResolver'
 import { isWebVhAttestedResource, parseResourceId, WebVhAttestedResource } from '../../resources/attestedResource'
-import { WebVhAnonCredsResource } from '../utils/transform'
+import { parseWebVhAnonCredsContent } from '../utils/transform'
 
 type DidResourceResolutionResult = {
   error?: string
@@ -230,13 +230,15 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
         )
       }
 
-      let resourceObject: WebVhAnonCredsResource
+      let resourceObject: WebVhAttestedResource
       try {
         agentContext.config.logger.trace(
           `Parsing resource data: ${JSON.stringify(resolutionResult.content).substring(0, 200)}...`
         )
-        resourceObject = JsonTransformer.fromJSON(resolutionResult.content, WebVhAnonCredsResource)
+        resourceObject = JsonTransformer.fromJSON(resolutionResult.content, WebVhAttestedResource)
+        resourceObject.content = parseWebVhAnonCredsContent(resourceObject.content)
       } catch (parseError) {
+        const cause = parseError instanceof Error ? parseError : undefined
         agentContext.config.logger.error(`Failed to parse resource data for ${resourceId}`, {
           error: parseError instanceof Error ? parseError.message : String(parseError),
           stack: parseError instanceof Error ? parseError.stack : undefined,
@@ -244,7 +246,8 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
         throw new CredoError(
           `Failed to parse resource data for ${resourceId}: ${
             parseError instanceof Error ? parseError.message : String(parseError)
-          }`
+          }`,
+          { cause }
         )
       }
 
@@ -379,7 +382,6 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
 
       // Extract the content and make sure it's a CredDef
       const credDefContent = resourceObject.content
-      // Type check for WebVhCredDefContent
       if (!isCredentialDefinitionContentShape(credDefContent)) {
         throw new CredoError('Resolved resource content is not a valid credential definition.')
       }

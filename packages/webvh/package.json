@@ -55,7 +55,8 @@
     "did-resolver": "^6.0.0",
     "didwebvh-ts": "^3.2.0",
     "json-canonicalize": "^3.0.0",
-    "tsyringe": "catalog:"
+    "tsyringe": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@credo-ts/anoncreds": "workspace:*",
