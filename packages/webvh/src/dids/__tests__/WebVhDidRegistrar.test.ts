@@ -19,9 +19,9 @@ import { InMemoryStorageService } from '../../../../../tests/InMemoryStorageServ
 import { agentDependencies, getAgentConfig, getAgentContext } from '../../../../core/tests/helpers'
 import { createWebVhTestKey, createWebVhTestOptions } from '../../../tests/utils'
 import { WebVhApi } from '../../WebVhApi'
+import { selectWebVhControllerSigner, validateWebVhControllerKeys } from '../WebVhDidController'
 import { WebVhDidCrypto } from '../WebVhDidCrypto'
 import { WebVhDidRegistrar } from '../WebVhDidRegistrar'
-import { selectWebVhControllerSigner, validateWebVhControllerKeys } from '../webVhDidController'
 import { WebVhDidRecordMetadataKeys } from '../webVhTypes'
 
 describe('WebVhDidRegistrar integration', () => {

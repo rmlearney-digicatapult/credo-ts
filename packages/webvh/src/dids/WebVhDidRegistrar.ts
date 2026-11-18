@@ -21,8 +21,6 @@ import {
   updateDID,
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
-
-import { WebVhDidCrypto } from './WebVhDidCrypto'
 import {
   failedWebVhRegistration,
   getWebVhDidLog,
@@ -33,7 +31,8 @@ import {
   selectWebVhControllerSigner,
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
-} from './webVhDidController'
+} from './WebVhDidController'
+import { WebVhDidCrypto } from './WebVhDidCrypto'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
 export interface WebVhDidCreateOptions extends DidCreateOptions {

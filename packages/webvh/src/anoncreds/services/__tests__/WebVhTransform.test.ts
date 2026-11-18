@@ -1,20 +1,17 @@
-import { JsonTransformer } from '@credo-ts/core'
-
-import { WebVhAttestedResource } from '../../../resources'
+import { zWebVhAttestedResource } from '../../../resources'
 import { parseWebVhAnonCredsContent } from '../../utils/transform'
 
 import { mockCredDefResource, mockSchemaResource } from './mock-resources'
 
 function parseResource(json: unknown) {
-  const resource = JsonTransformer.fromJSON(json, WebVhAttestedResource)
-  return Object.assign(resource, { content: parseWebVhAnonCredsContent(resource.content) })
+  const resource = zWebVhAttestedResource.parse(json)
+  return { ...resource, content: parseWebVhAnonCredsContent(resource.content) }
 }
 
 describe('WebVhTransform', () => {
   it('should correctly transform a schema resource', () => {
     const resource = parseResource(mockSchemaResource)
 
-    expect(resource).toBeInstanceOf(WebVhAttestedResource)
     expect(resource['@context']).toContain('https://opsecid.github.io/attested-resource/v1')
     expect(resource.type).toEqual(['AttestedResource'])
 
@@ -32,7 +29,6 @@ describe('WebVhTransform', () => {
   it('should correctly transform a credential definition resource', () => {
     const resource = parseResource(mockCredDefResource)
 
-    expect(resource).toBeInstanceOf(WebVhAttestedResource)
     expect(resource['@context']).toContain('https://identity.foundation/did-attested-resources/context/v0.1')
     expect(resource.type).toEqual(['AttestedResource'])
 

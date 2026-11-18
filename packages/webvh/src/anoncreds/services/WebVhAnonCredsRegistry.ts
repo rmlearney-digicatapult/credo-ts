@@ -25,7 +25,6 @@ import {
   CredoError,
   DidRepository,
   getPublicJwkFromVerificationMethod,
-  JsonTransformer,
   Kms,
   keyDidEd25519,
   MultiBaseEncoder,
@@ -38,9 +37,10 @@ import {
   type W3cDataIntegritySingleProofSecuredDocument,
   type W3cDataIntegrityUnsecuredDocument,
 } from '@credo-ts/core'
+import { parseDidWebvhUrl } from 'didwebvh-ts'
 import { canonicalize } from 'json-canonicalize'
 import { getWebVhDidResolver } from '../../dids/getWebVhDidResolver'
-import { isWebVhAttestedResource, parseResourceId, WebVhAttestedResource } from '../../resources/attestedResource'
+import { type WebVhAttestedResource, zWebVhAttestedResource } from '../../resources/attestedResource'
 import { parseWebVhAnonCredsContent } from '../utils/transform'
 
 type DidResourceResolutionResult = {
@@ -214,6 +214,21 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       if (!this.supportedIdentifier.test(resourceId))
         throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`)
 
+      let parsedResourceUrl: ReturnType<typeof parseDidWebvhUrl>
+      try {
+        parsedResourceUrl = parseDidWebvhUrl(resourceId)
+      } catch (error) {
+        throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`, {
+          cause: error instanceof Error ? error : undefined,
+        })
+      }
+
+      const resourcePathMatch = parsedResourceUrl.path?.match(/^\/resources\/([^/]+)$/)
+      if (parsedResourceUrl.query !== undefined || parsedResourceUrl.fragment !== undefined || !resourcePathMatch) {
+        throw new CredoError(`Invalid ${resourceTypeString} ID: ${resourceId}`)
+      }
+      const expectedMultibaseHash = resourcePathMatch[1]
+
       agentContext.config.logger.trace(
         `Attempting to resolve ${resourceTypeString} resource '${resourceId}' via did:webvh resolver`
       )
@@ -235,7 +250,7 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
         agentContext.config.logger.trace(
           `Parsing resource data: ${JSON.stringify(resolutionResult.content).substring(0, 200)}...`
         )
-        resourceObject = JsonTransformer.fromJSON(resolutionResult.content, WebVhAttestedResource)
+        resourceObject = zWebVhAttestedResource.parse(resolutionResult.content)
         resourceObject.content = parseWebVhAnonCredsContent(resourceObject.content)
       } catch (parseError) {
         const cause = parseError instanceof Error ? parseError : undefined
@@ -254,20 +269,15 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       // --- Attested Resource Validation steps ---
 
       // 1. Data Model Verification
-      if (!isWebVhAttestedResource(resourceObject)) {
+      if (!resourceObject.type.includes('AttestedResource')) {
         throw new CredoError('Missing AttestedResource type.')
       }
       agentContext.config.logger.trace(`Resource ${resourceId} attestation found.`)
 
-      const parsedResourceId = parseResourceId(resourceId)
-      if (!parsedResourceId) {
-        throw new CredoError(`Could not extract DID from resource ID: ${resourceId}`)
-      }
-
       const verificationMethodDid = parseDid(resourceObject.proof.verificationMethod).did
-      if (verificationMethodDid !== parsedResourceId.did) {
+      if (verificationMethodDid !== parsedResourceUrl.did) {
         throw new CredoError(
-          `Proof verification method DID mismatch for ${resourceId}. Expected: ${parsedResourceId.did}, Actual: ${verificationMethodDid}`
+          `Proof verification method DID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${verificationMethodDid}`
         )
       }
 
@@ -280,20 +290,15 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       agentContext.config.logger.trace(`Resource ${resourceId} proof validated.`)
 
       const contentIssuerId = (resourceObject.content as { issuerId?: unknown }).issuerId
-      if (contentIssuerId !== parsedResourceId.did) {
+      if (contentIssuerId !== parsedResourceUrl.did) {
         throw new CredoError(
-          `Issuer ID mismatch for ${resourceId}. Expected: ${parsedResourceId.did}, Actual: ${String(contentIssuerId)}`
+          `Issuer ID mismatch for ${resourceId}. Expected: ${parsedResourceUrl.did}, Actual: ${String(contentIssuerId)}`
         )
       }
 
       // 3. Resource Digest Multibase Verification
       if (resourceObject.id !== resourceId) {
         throw new CredoError(`ID mismatch ${resourceObject.id} != ${resourceId}`)
-      }
-      const parts = resourceId.split(/[:/]/)
-      const expectedMultibaseHash = parts[parts.length - 1]
-      if (!expectedMultibaseHash) {
-        throw new CredoError(`Could not extract expected hash from ${resourceTypeString} ID: ${resourceId}`)
       }
       const digestMultibase = this._digestMultibase(canonicalize(resourceObject.content))
 
@@ -328,18 +333,6 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       }
 
       const contentIssuerId = schemaContent.issuerId
-
-      const parsedSchemaId = parseResourceId(schemaId)
-      if (!parsedSchemaId) {
-        throw new CredoError(`Could not extract DID from resource ID: ${schemaId}`)
-      }
-      const expectedIssuerDid = parsedSchemaId.did
-
-      if (contentIssuerId !== expectedIssuerDid) {
-        throw new CredoError(
-          `Issuer ID mismatch for ${schemaId}. Expected: ${expectedIssuerDid}, Actual: ${contentIssuerId}`
-        )
-      }
 
       return {
         schema: {
@@ -384,21 +377,6 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
       const credDefContent = resourceObject.content
       if (!isCredentialDefinitionContentShape(credDefContent)) {
         throw new CredoError('Resolved resource content is not a valid credential definition.')
-      }
-
-      const contentIssuerId = credDefContent.issuerId
-
-      // Extract the DID from the resourceId (part before /resources/hash)
-      const parsedCredentialDefinitionId = parseResourceId(credentialDefinitionId)
-      if (!parsedCredentialDefinitionId) {
-        throw new CredoError(`Could not extract DID from resource ID: ${credentialDefinitionId}`)
-      }
-      const expectedIssuerDid = parsedCredentialDefinitionId.did
-
-      if (contentIssuerId !== expectedIssuerDid) {
-        throw new CredoError(
-          `Issuer ID mismatch for ${credentialDefinitionId}. Expected: ${expectedIssuerDid}, Actual: ${contentIssuerId}`
-        )
       }
 
       // Extract metadata from the resolved resource

@@ -23,7 +23,6 @@ import {
 } from 'didwebvh-ts'
 
 import { getWebVhDidResolver } from './dids/getWebVhDidResolver'
-import { WebVhDidCrypto } from './dids/WebVhDidCrypto'
 import {
   createWebVhKmsSigner,
   failedWebVhRegistration,
@@ -31,7 +30,8 @@ import {
   getWebVhDidRecord,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
-} from './dids/webVhDidController'
+} from './dids/WebVhDidController'
+import { WebVhDidCrypto } from './dids/WebVhDidCrypto'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './dids/webVhTypes'
 
 export type WebVhWitnessSigningOptions = Pick<

@@ -150,8 +150,23 @@ describe('WebVhAnonCredsRegistry', () => {
       })
     })
 
+    it.each([
+      'did:webvh:invalid-id/resources/somehash',
+      `${issuerId}/resources/somehash?versionId=1-abc`,
+      `${issuerId}/resources/somehash#fragment`,
+      `${issuerId}/other/somehash`,
+    ])('should reject non-resource DID URLs before resolving (%s)', async (invalidSchemaId) => {
+      const result = await registry.getSchema(agentContext, invalidSchemaId)
+
+      expect(mockResolveResource).not.toHaveBeenCalled()
+      expect(result.resolutionMetadata).toMatchObject({
+        error: 'invalid',
+        message: expect.stringContaining(`Invalid schema ID: ${invalidSchemaId}`),
+      })
+    })
+
     it('should return resolutionMetadata with error if resolver fails to resolve', async () => {
-      const schemaId = 'did:webvh:example.com:resource:schema/somehash'
+      const schemaId = `${issuerId}/resources/somehash`
       const errorMessage = 'Resource not found on server'
       // Simulate resolver returning an error structure
       mockResolveResource.mockResolvedValue({
@@ -175,7 +190,7 @@ describe('WebVhAnonCredsRegistry', () => {
     })
 
     it('should return resolutionMetadata with error if resolved data is not valid JSON', async () => {
-      const schemaId = 'did:webvh:example.com:resource:schema/jsonhash'
+      const schemaId = `${issuerId}/resources/jsonhash`
       mockResolveResource.mockResolvedValue({
         content: { data: 'invalid json' },
         contentMetadata: {},
@@ -200,7 +215,7 @@ describe('WebVhAnonCredsRegistry', () => {
       const contentString = canonicalize(schemaContent)
       const digestBuffer = createHash('sha256').update(contentString).digest()
       const multibaseHash = MultiHashEncoder.encode(digestBuffer, 'sha-256')
-      const schemaId = `did:webvh:example.com:resource:noattest/${multibaseHash}`
+      const schemaId = `${issuerId}/resources/${multibaseHash}`
 
       const mockWebResource = {
         ...mockSchemaResource,
@@ -233,7 +248,7 @@ describe('WebVhAnonCredsRegistry', () => {
       const schemaContent = { attrNames: ['a'], name: 'N', version: 'V' }
       const digestBuffer = TypedArrayEncoder.fromUtf8String(canonicalize(schemaContent))
       const multibaseHash = MultiBaseEncoder.encode(MultiHashEncoder.encode(digestBuffer, 'sha-256'), 'base58btc')
-      const schemaDid = 'did:webvh:QmExampleSCID:example.com'
+      const schemaDid = issuerId
       const schemaId = `${schemaDid}/resources/${multibaseHash}`
 
       const mockWebResource = {
@@ -274,7 +289,7 @@ describe('WebVhAnonCredsRegistry', () => {
 
     it('should return resolutionMetadata with error if content hash does not match schemaId', async () => {
       const schemaContent = {
-        issuerId: 'did:webvh:QmExampleSCID:example.com',
+        issuerId,
         attrNames: ['a'],
         name: 'N',
         version: 'V',
@@ -318,7 +333,7 @@ describe('WebVhAnonCredsRegistry', () => {
     })
 
     it('should return resolutionMetadata with error if parsed content is missing required fields', async () => {
-      const schemaDid = 'did:webvh:QmExampleSCID:example.com'
+      const schemaDid = issuerId
       const incompleteContent = {
         issuerId: schemaDid,
         name: 'TestSchema',
@@ -467,32 +482,25 @@ describe('WebVhAnonCredsRegistry', () => {
   })
 
   describe('getCredentialDefinition', () => {
-    it('should return resolutionMetadata with error for invalid prefix (tested via helper)', async () => {
+    it('should return resolutionMetadata with error for invalid prefix', async () => {
       const credDefId = 'did:web:example.com/resource/credDef123' // Invalid prefix for this registry
 
-      // We expect the helper function to throw before specific logic is hit
       const result = await registry.getCredentialDefinition(agentContext, credDefId)
 
-      // Expect the error thrown by the helper function
       expect(result.resolutionMetadata.error).toBe('invalid')
       expect(result.resolutionMetadata.message).toContain(`Invalid credential definition ID: ${credDefId}`)
       expect(mockResolveResource).not.toHaveBeenCalled() // Resolver shouldn't be called if prefix check fails
     })
 
-    it('should return resolutionMetadata with error if credentialDefinitionId is invalid (tested via helper)', async () => {
-      const invalidCredDefId = 'did:webvh:invalid-id' // Correct prefix, but might fail later
+    it('should return resolutionMetadata with error if the resource cannot be resolved', async () => {
+      const invalidCredDefId = `${issuerId}/resources/somehash`
 
-      // Mock the resolver to return a specific error for this ID to simulate a resolution failure
-      // Or let it proceed and expect failure during validation within the helper
-      // Here, we test the helper's initial ID format check
       mockResolveResource.mockResolvedValue({ error: 'notFound', message: 'Simulated resolution failure' })
 
       const result = await registry.getCredentialDefinition(agentContext, invalidCredDefId)
 
-      // The helper WILL call the resolver, but the resolution fails.
       expect(mockResolveResource).toHaveBeenCalledWith(agentContext, invalidCredDefId)
 
-      // Expect the error propagated from the helper/resolver
       expect(result.resolutionMetadata.error).toBe('invalid')
       expect(result.resolutionMetadata.message).toContain('could not be resolved or is missing data')
     })
