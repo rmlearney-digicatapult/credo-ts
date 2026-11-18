@@ -1,5 +1,14 @@
-import { CacheModuleConfig, CredoError, DidRepository, InjectionSymbols, InMemoryLruCache, Kms } from '@credo-ts/core'
-import { signWitnessProofEntry, type WitnessProofFileEntry } from 'didwebvh-ts'
+import {
+  CacheModuleConfig,
+  CredoError,
+  DidRepository,
+  DidResolverService,
+  DidsModuleConfig,
+  InjectionSymbols,
+  InMemoryLruCache,
+  Kms,
+} from '@credo-ts/core'
+import { migrateDID, signWitnessProofEntry, updateDID, type WitnessProofFileEntry } from 'didwebvh-ts'
 import { Subject } from 'rxjs'
 
 import { InMemoryStorageService } from '../../../tests/InMemoryStorageService'
@@ -7,10 +16,10 @@ import { agentDependencies, getAgentConfig, getAgentContext } from '../../core/t
 import { WebVhApi, WebVhDidRegistrar } from '../src'
 import { createWebVhTestKey, createWebVhTestOptions, validDid } from './utils'
 
-vi.mock('didwebvh-ts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('didwebvh-ts')>()),
-  signWitnessProofEntry: vi.fn(),
-}))
+vi.mock('didwebvh-ts', async (importOriginal) => {
+  const original = await importOriginal<typeof import('didwebvh-ts')>()
+  return { ...original, signWitnessProofEntry: vi.fn(), migrateDID: vi.fn(original.migrateDID) }
+})
 
 describe('WebVhApi controller/witness bridges', () => {
   let context: ReturnType<typeof getAgentContext>
@@ -18,12 +27,15 @@ describe('WebVhApi controller/witness bridges', () => {
 
   beforeEach(() => {
     vi.mocked(signWitnessProofEntry).mockReset()
+    const agentConfig = getAgentConfig('WebVhApiTest')
     context = getAgentContext({
-      agentConfig: getAgentConfig('WebVhApiTest'),
+      agentConfig,
       registerInstances: [
         [InjectionSymbols.Stop$, new Subject<boolean>()],
         [InjectionSymbols.AgentDependencies, agentDependencies],
         [InjectionSymbols.StorageService, new InMemoryStorageService()],
+        [InjectionSymbols.Logger, agentConfig.logger],
+        [DidsModuleConfig, new DidsModuleConfig()],
         [CacheModuleConfig, new CacheModuleConfig({ cache: new InMemoryLruCache({ limit: 500 }) })],
       ],
     })
@@ -126,6 +138,20 @@ describe('WebVhApi controller/witness bridges', () => {
       reason: expect.stringContaining('migrateDID requires a percent-encoded U-label DID'),
     })
     expect(await api.getPublicationData(did)).toEqual(before)
+  })
+
+  test('clears the cached document of a migrated DID', async () => {
+    const created = await new WebVhDidRegistrar().create(context, await createWebVhTestOptions(context))
+    if (created.didState.state !== 'finished') throw new Error('Fixture create failed')
+    const { did, didDocument } = created.didState
+    // didwebvh-ts tests the migration itself, so an ordinary update stands in for it here.
+    vi.mocked(migrateDID).mockImplementationOnce(({ address: _, ...options }) => updateDID(options))
+    const invalidateCacheForDid = vi.spyOn(DidResolverService.prototype, 'invalidateCacheForDid')
+
+    const result = await api.migrate({ did, didDocument, options: { address: 'example.com' } })
+
+    expect(result.didState.state).toBe('finished')
+    expect(invalidateCacheForDid).toHaveBeenCalledWith(context, did)
   })
 
   test('wraps upstream witness-signing failures with the original cause', async () => {

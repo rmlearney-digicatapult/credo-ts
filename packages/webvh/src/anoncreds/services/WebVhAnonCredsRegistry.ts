@@ -504,29 +504,23 @@ export class WebVhAnonCredsRegistry implements AnonCredsRegistry {
         throw new CredoError('No revocation entries found.')
       }
 
-      let revocationEntryId: string | undefined
-      for (const [index, entry] of revocationEntries?.entries() ?? []) {
-        if (entry.timestamp && entry.timestamp > timestamp) {
-          revocationEntryId = revocationEntries?.[index - 1]?.id
-          break
-        }
-      }
-      if (!revocationEntryId) {
-        revocationEntryId = revocationEntries?.[revocationEntries.length - 1]?.id
+      // The status list in force at a timestamp is the latest one published at or before it.
+      const selectedEntry = revocationEntries.filter((entry) => (entry.timestamp ?? 0) <= timestamp).pop()
+      if (!selectedEntry) {
+        throw new CredoError(`No revocation status list was published at or before timestamp ${timestamp}.`)
       }
 
       const { resourceObject: revocationEntryResourceObject, resolutionResult: revocationEntryResolutionResult } =
-        await this._resolveAndValidateAttestedResource(agentContext, revocationEntryId, 'revocation status list entry')
+        await this._resolveAndValidateAttestedResource(agentContext, selectedEntry.id, 'revocation status list entry')
 
       if (!revocationEntryResourceObject) {
         throw new CredoError('No revocation entry found for the given timestamp.')
       }
 
       // The signed attested resource does not embed the timestamp, so we inject it before validating the shape
-      const selectedEntry = revocationEntries.find((entry) => entry.id === revocationEntryId)
       const revocationStatusListContent = {
         ...(revocationEntryResourceObject.content as object),
-        timestamp: selectedEntry?.timestamp,
+        timestamp: selectedEntry.timestamp,
       }
 
       if (!isRevocationStatusListShape(revocationStatusListContent)) {

@@ -2,6 +2,7 @@ import {
   CacheModuleConfig,
   DidDocumentService,
   DidRepository,
+  DidsModuleConfig,
   InjectionSymbols,
   InMemoryLruCache,
   Kms,
@@ -24,12 +25,15 @@ describe('WebVhDidRegistrar adapter boundary', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    const agentConfig = getAgentConfig('WebVhDidBoundary')
     agentContext = getAgentContext({
-      agentConfig: getAgentConfig('WebVhDidBoundary'),
+      agentConfig,
       registerInstances: [
         [InjectionSymbols.Stop$, new Subject<boolean>()],
         [InjectionSymbols.AgentDependencies, agentDependencies],
         [InjectionSymbols.StorageService, new InMemoryStorageService()],
+        [InjectionSymbols.Logger, agentConfig.logger],
+        [DidsModuleConfig, new DidsModuleConfig()],
         [CacheModuleConfig, new CacheModuleConfig({ cache: new InMemoryLruCache({ limit: 500 }) })],
       ],
     })

@@ -638,6 +638,43 @@ describe('WebVhAnonCredsRegistry', () => {
     // similar to the getSchema tests
   })
 
+  describe('getRevocationStatusList', () => {
+    const revRegDefId = mockRevRegDefResource.id
+    const statusListId = mockRegRevEntryResource.id
+    const statusListTimestamp = mockRevRegDefResource.links[0].timestamp
+
+    beforeEach(() => {
+      const revRegDefResource = {
+        ...mockRevRegDefResource,
+        links: [
+          ...mockRevRegDefResource.links,
+          { id: `${issuerId}/resources/zLater`, type: 'anonCredsStatusList', timestamp: statusListTimestamp + 100 },
+        ],
+      }
+      mockResolveResource.mockImplementation(async (_, resourceId: string) => ({
+        content: resourceId === revRegDefId ? revRegDefResource : mockRegRevEntryResource,
+        dereferencingMetadata: { contentType: 'application/json' },
+      }))
+    })
+
+    it('returns the latest status list published at or before the timestamp', async () => {
+      const result = await registry.getRevocationStatusList(agentContext, revRegDefId, statusListTimestamp + 60)
+
+      expect(result.resolutionMetadata.error).toBeUndefined()
+      expect(result.revocationStatusList).toMatchObject({ revRegDefId, timestamp: statusListTimestamp })
+    })
+
+    it('returns an error for a timestamp before the first status list', async () => {
+      const result = await registry.getRevocationStatusList(agentContext, revRegDefId, statusListTimestamp - 1)
+
+      expect(result.resolutionMetadata).toMatchObject({
+        error: 'notFound',
+        message: expect.stringContaining('No revocation status list was published at or before'),
+      })
+      expect(mockResolveResource).not.toHaveBeenCalledWith(agentContext, statusListId)
+    })
+  })
+
   describe('registerRevocationRegistryDefinition', () => {
     it('should register and retrieve a RevRegDef with correct resolutionMetadata', async () => {
       const revRegDefId = mockRevRegDefResource.id

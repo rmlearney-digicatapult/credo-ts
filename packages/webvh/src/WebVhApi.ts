@@ -4,6 +4,7 @@ import {
   DidDocument,
   type DidDocumentKey,
   DidRepository,
+  DidResolverService,
   type DidUpdateResult,
   injectable,
 } from '@credo-ts/core'
@@ -170,6 +171,10 @@ export class WebVhApi {
    */
   public async migrate(options: WebVhDidMigrateOptions): Promise<DidUpdateResult> {
     try {
+      // Migration bypasses DidsApi.update, which evicts the cached document before writing.
+      await this.agentContext.dependencyManager
+        .resolve(DidResolverService)
+        .invalidateCacheForDid(this.agentContext, options.did)
       const prepared = await prepareWebVhDocumentWrite(
         this.agentContext,
         options.did,
