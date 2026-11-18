@@ -60,6 +60,12 @@ describe('WebVhTransform', () => {
     expect(() => parseResource(invalidResource)).toThrow()
   })
 
+  it('rejects schema content without an issuerId', () => {
+    const { issuerId: _, ...content } = mockSchemaResource.content
+
+    expect(() => parseResource({ ...mockSchemaResource, content })).toThrow()
+  })
+
   it('transforms revocation registry definition content', () => {
     const content = {
       issuerId: mockSchemaResource.content.issuerId,

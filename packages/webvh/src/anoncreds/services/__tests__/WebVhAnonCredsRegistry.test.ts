@@ -245,7 +245,7 @@ describe('WebVhAnonCredsRegistry', () => {
       const verifyProofSpy = vi.spyOn(WebVhAnonCredsRegistry.prototype, 'verifyProof')
       verifyProofSpy.mockResolvedValueOnce(false)
 
-      const schemaContent = { attrNames: ['a'], name: 'N', version: 'V' }
+      const schemaContent = { issuerId, attrNames: ['a'], name: 'N', version: 'V' }
       const digestBuffer = TypedArrayEncoder.fromUtf8String(canonicalize(schemaContent))
       const multibaseHash = MultiBaseEncoder.encode(MultiHashEncoder.encode(digestBuffer, 'sha-256'), 'base58btc')
       const schemaDid = issuerId

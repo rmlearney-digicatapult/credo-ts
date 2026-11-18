@@ -1,5 +1,6 @@
 export type {
   WebVhAttestedResource,
+  WebVhAttestedResourceInput,
   WebVhAttestedResourceLink,
   WebVhAttestedResourceProof,
 } from './attestedResource'

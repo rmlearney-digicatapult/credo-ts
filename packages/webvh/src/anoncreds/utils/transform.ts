@@ -4,7 +4,7 @@ const zWebVhSchemaContent = z.looseObject({
   attrNames: z.array(z.string()).min(1),
   name: z.string(),
   version: z.string(),
-  issuerId: z.string().nullish(),
+  issuerId: z.string(),
 })
 type WebVhSchemaContent = z.output<typeof zWebVhSchemaContent>
 

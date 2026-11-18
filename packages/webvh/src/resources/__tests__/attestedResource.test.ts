@@ -31,6 +31,10 @@ describe('attestedResource', () => {
     expect(isWebVhAttestedResource(invalid)).toBe(false)
   })
 
+  it('accepts a string type, as the schema does', () => {
+    expect(isWebVhAttestedResource({ ...validResource, type: 'AttestedResource' })).toBe(true)
+  })
+
   it('normalizes type strings and preserves unknown resource fields', () => {
     const parsed = zWebVhAttestedResource.parse({
       ...validResource,
