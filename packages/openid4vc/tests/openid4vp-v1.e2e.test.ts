@@ -4,6 +4,7 @@ import {
   DateOnly,
   type DcqlQuery,
   type GetTrustedIssuersForVerification,
+  JsonEncoder,
   Kms,
   MdocDeviceResponse,
   MdocRecord,
@@ -28,6 +29,7 @@ import {
   X509Module,
   X509Service,
 } from '@credo-ts/core'
+import { decodeJwt, Oauth2ErrorCodes, Oauth2ServerErrorResponseError } from '@openid4vc/oauth2'
 import express, { type Express } from 'express'
 import nock from 'nock'
 import { filter, firstValueFrom } from 'rxjs'
@@ -44,6 +46,7 @@ import {
   OpenId4VcVerifierEvents,
   type OpenId4VcVerifierModuleConfigOptions,
   type OpenId4VpAuthorizationRequestPayload,
+  type OpenId4VpVerifiedAuthorizationResponseHandler,
   Openid4vpAuthorizationRequestError,
 } from '../src'
 import { getOid4vcCallbacks } from '../src/shared/callbacks'
@@ -91,8 +94,12 @@ describe('OpenID4VP 1.0', () => {
   let verifier1: TenantType
   let verifier2: TenantType
 
+  // Only set by the tests of the handler
+  let verifiedAuthorizationResponseHandler: OpenId4VpVerifiedAuthorizationResponseHandler | undefined
+
   beforeEach(async () => {
     expressApp = express()
+    verifiedAuthorizationResponseHandler = undefined
 
     holder = (await createAgentFromModules(
       {
@@ -125,6 +132,7 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
           app: expressApp,
           verifier: {
             baseUrl: verificationBaseUrl,
+            verifiedAuthorizationResponseHandler: (options) => verifiedAuthorizationResponseHandler?.(options),
           },
         }),
         inMemory: new InMemoryWalletModule(),
@@ -790,7 +798,7 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
         transactionData: [
           {
             type: 'OpenBadgeTx',
-            credential_ids: ['OpenBadgeCredentialDescriptor'],
+            credential_ids: ['SomeDifferentId'],
             transaction_data_hasheks_alg: ['sha-256'],
             some_extra_prop: 'is_allowed',
           },
@@ -834,17 +842,7 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
         transactionData: [
           {
             type: 'OpenBadgeTx',
-            credential_ids: ['UnknownCredentialId', 'OpenBadgeCredentialDescriptor', 'OtherUnknownCredentialId'],
-            transaction_data_hashes_alg: ['sha-256'],
-          },
-          {
-            type: 'OpenBadgeTx',
             credential_ids: ['OpenBadgeCredentialDescriptor'],
-            transaction_data_hashes_alg: ['sha-256'],
-          },
-          {
-            type: 'OpenBadgeTx',
-            credential_ids: ['ThirdUnknownCredentialId'],
             transaction_data_hashes_alg: ['sha-256'],
           },
         ],
@@ -861,6 +859,37 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
         },
         version: 'v1',
       })
+
+    // The verifier refuses to create a request with unknown credential ids, so we re-sign it with them
+    const { header, payload } = decodeJwt({ jwt: verificationSession.authorizationRequestJwt as string })
+    const transactionData = [
+      {
+        type: 'OpenBadgeTx',
+        credential_ids: ['UnknownCredentialId', 'OpenBadgeCredentialDescriptor', 'OtherUnknownCredentialId'],
+        transaction_data_hashes_alg: ['sha-256'],
+      },
+      {
+        type: 'OpenBadgeTx',
+        credential_ids: ['OpenBadgeCredentialDescriptor'],
+        transaction_data_hashes_alg: ['sha-256'],
+      },
+      {
+        type: 'OpenBadgeTx',
+        credential_ids: ['ThirdUnknownCredentialId'],
+        transaction_data_hashes_alg: ['sha-256'],
+      },
+    ]
+    const { jwt } = await getOid4vcCallbacks(verifier.agent.context).signJwt(
+      { method: 'x5c', alg: 'EdDSA', x5c: [rawCertificate], kid: certificate.publicJwk.keyId },
+      {
+        header,
+        payload: { ...payload, transaction_data: transactionData.map((entry) => JsonEncoder.toBase64Url(entry)) },
+      }
+    )
+    verificationSession.authorizationRequestJwt = jwt
+    await verifier.agent.dependencyManager
+      .resolve(OpenId4VcVerificationSessionRepository)
+      .update(verifier.agent.context, verificationSession)
 
     const error = await holder.agent.openid4vc.holder
       .resolveOpenId4VpAuthorizationRequest(authorizationRequest)
@@ -1367,6 +1396,111 @@ pUGCFdfNLQIgHGSa5u5ZqUtCrnMiaEageO71rjzBlov0YUH4+6ELioY=
       requestedVct,
     ])
     expect(presentation?.typeMetadata).toMatchObject({ vct: presentedVct, extends: requestedVct })
+  })
+
+  describe('verifiedAuthorizationResponseHandler', () => {
+    const presentOpenBadge = async () => {
+      const openIdVerifier = await verifier.agent.openid4vc.verifier.createVerifier()
+
+      const signedSdJwtVc = await verifier.agent.sdJwtVc.sign({
+        holder: { method: 'did', didUrl: holder.kid },
+        issuer: { method: 'did', didUrl: verifier.kid },
+        payload: { vct: 'OpenBadgeCredential', university: 'innsbruck' },
+      })
+      const credentialRecord = await holder.agent.sdJwtVc.store({ record: SdJwtVcRecord.fromSdJwtVc(signedSdJwtVc) })
+
+      const { authorizationRequest, verificationSession } =
+        await verifier.agent.openid4vc.verifier.createAuthorizationRequest({
+          verifierId: openIdVerifier.verifierId,
+          requestSigner: { method: 'did', didUrl: verifier.kid },
+          responseMode: 'direct_post.jwt',
+          dcql: {
+            query: {
+              credentials: [{ id: 'degree', format: 'dc+sd-jwt', meta: { vct_values: ['OpenBadgeCredential'] } }],
+            },
+          },
+          authorizationResponseRedirectUri: 'https://example.com/redirect',
+          version: 'v1',
+        })
+
+      const resolvedAuthorizationRequest =
+        await holder.agent.openid4vc.holder.resolveOpenId4VpAuthorizationRequest(authorizationRequest)
+
+      const { serverResponse } = await holder.agent.openid4vc.holder.acceptOpenId4VpAuthorizationRequest({
+        authorizationRequestPayload: resolvedAuthorizationRequest.authorizationRequestPayload,
+        dcql: {
+          credentials: {
+            degree: [
+              { claimFormat: ClaimFormat.SdJwtDc, credentialRecord, disclosedPayload: { university: 'innsbruck' } },
+            ],
+          },
+        },
+      })
+
+      return { serverResponse, verificationSession }
+    }
+
+    it('awaits the handler with the verified response before the wallet gets its response', async () => {
+      const handled: Array<{ state: OpenId4VcVerificationSessionState; claims: unknown }> = []
+      verifiedAuthorizationResponseHandler = async ({ verificationSession, verifiedAuthorizationResponse }) => {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        const presentation = verifiedAuthorizationResponse.dcql?.presentations.degree[0] as SdJwtVc
+        handled.push({ state: verificationSession.state, claims: presentation.prettyClaims })
+      }
+
+      const { serverResponse, verificationSession } = await presentOpenBadge()
+
+      expect(serverResponse).toMatchObject({ status: 200, body: { redirect_uri: 'https://example.com/redirect' } })
+      expect(handled).toEqual([
+        {
+          state: OpenId4VcVerificationSessionState.RequestUriRetrieved,
+          claims: expect.objectContaining({ university: 'innsbruck' }),
+        },
+      ])
+
+      const storedSession = await verifier.agent.openid4vc.verifier.getVerificationSessionById(verificationSession.id)
+      expect(storedSession.state).toEqual(OpenId4VcVerificationSessionState.ResponseVerified)
+    })
+
+    it('answers the wallet with an error and moves the session to Error when the handler throws', async () => {
+      verifiedAuthorizationResponseHandler = async () => {
+        throw new Error('message bus unavailable')
+      }
+
+      const { serverResponse, verificationSession } = await presentOpenBadge()
+
+      expect(serverResponse).toMatchObject({
+        status: 500,
+        body: { error: 'server_error', redirect_uri: 'https://example.com/redirect' },
+      })
+
+      const storedSession = await verifier.agent.openid4vc.verifier.getVerificationSessionById(verificationSession.id)
+      expect(storedSession.state).toEqual(OpenId4VcVerificationSessionState.Error)
+      expect(storedSession.errorMessage).toEqual('message bus unavailable')
+    })
+
+    it('answers the wallet with the error response of an Oauth2ServerErrorResponseError thrown by the handler', async () => {
+      verifiedAuthorizationResponseHandler = async () => {
+        throw new Oauth2ServerErrorResponseError(
+          { error: Oauth2ErrorCodes.AccessDenied, error_description: 'Presentation rejected' },
+          { status: 403 }
+        )
+      }
+
+      const { serverResponse, verificationSession } = await presentOpenBadge()
+
+      expect(serverResponse).toEqual({
+        status: 403,
+        body: {
+          error: 'access_denied',
+          error_description: 'Presentation rejected',
+          redirect_uri: 'https://example.com/redirect',
+        },
+      })
+
+      const storedSession = await verifier.agent.openid4vc.verifier.getVerificationSessionById(verificationSession.id)
+      expect(storedSession.state).toEqual(OpenId4VcVerificationSessionState.Error)
+    })
   })
 
   it('e2e flow with verifier endpoints verifying a sd-jwt-vc with selective disclosure', async () => {

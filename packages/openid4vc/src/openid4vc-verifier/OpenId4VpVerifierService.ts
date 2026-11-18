@@ -31,6 +31,7 @@ import {
   type MdocSupportedSignatureAlgorithm,
   mapNonEmptyArray,
   type NonEmptyArray,
+  parseX5c,
   type Query,
   type QueryOptions,
   SdJwtVcApi,
@@ -46,7 +47,6 @@ import {
   W3cJwtVerifiablePresentation,
   W3cV2CredentialService,
   W3cV2SdJwtVerifiablePresentation,
-  X509Certificate,
   X509ModuleConfig,
   X509Service,
 } from '@credo-ts/core'
@@ -203,12 +203,12 @@ export class OpenId4VpVerifierService {
       )
     }
 
-    if (options.verifierInfo) {
-      const queryIds =
-        options?.dcql?.query.credentials.map(({ id }) => id) ??
-        options?.presentationExchange?.definition.input_descriptors.map(({ id }) => id) ??
-        []
+    const queryIds =
+      options.dcql?.query.credentials.map(({ id }) => id) ??
+      options.presentationExchange?.definition.input_descriptors.map(({ id }) => id) ??
+      []
 
+    if (options.verifierInfo) {
       const hasValidCredentialIds = options.verifierInfo.every(
         (vi) => !vi.credential_ids || vi.credential_ids.every((credentialId) => queryIds.includes(credentialId))
       )
@@ -218,6 +218,18 @@ export class OpenId4VpVerifierService {
           'Verifier info (attestations) were provided, but the verifier info used credential ids that are not present in the query'
         )
       }
+    }
+
+    const unknownCredentialIdErrors = (options.transactionData ?? []).flatMap((entry, index) => {
+      const unknownCredentialIds = entry.credential_ids.filter((credentialId) => !queryIds.includes(credentialId))
+      return unknownCredentialIds.length > 0
+        ? [`entry with index ${index} references ${unknownCredentialIds.map((id) => `'${id}'`).join(', ')}`]
+        : []
+    })
+    if (unknownCredentialIdErrors.length > 0) {
+      throw new CredoError(
+        `Transaction data references credential ids that are not present in the query: ${unknownCredentialIdErrors.join('; ')}.`
+      )
     }
 
     const authorizationRequestId = utils.uuid()
@@ -373,6 +385,9 @@ export class OpenId4VpVerifierService {
       expiresAt,
       openId4VpVersion: version,
     })
+    for (const [key, value] of Object.entries(options.recordMetadata ?? {})) {
+      verificationSession.metadata.set(key, value)
+    }
     await this.openId4VcVerificationSessionRepository.save(agentContext, verificationSession)
     this.emitStateChangedEvent(agentContext, verificationSession, null)
 
@@ -756,6 +771,18 @@ export class OpenId4VpVerifierService {
       transactionData,
     }
 
+    try {
+      await this.config.verifiedAuthorizationResponseHandler?.({
+        agentContext,
+        verificationSession: result.verificationSession,
+        verifiedAuthorizationResponse,
+      })
+    } catch (error) {
+      result.verificationSession.errorMessage = error.message
+      await this.updateState(agentContext, result.verificationSession, OpenId4VcVerificationSessionState.Error)
+      throw error
+    }
+
     result.verificationSession.authorizationResponsePayload = result.authorizationResponsePayload
     await this.updateState(
       agentContext,
@@ -802,7 +829,7 @@ export class OpenId4VpVerifierService {
     const openid4vpVerifier = this.getOpenid4vpVerifier(agentContext)
 
     const result = openid4vpVerifier.validateOpenid4vpAuthorizationResponsePayload({
-      authorizationRequestPayload: verificationSession.requestPayload,
+      authorizationRequestPayload,
       authorizationResponsePayload: openid4vpAuthorizationResponsePayload,
     })
 
@@ -983,7 +1010,7 @@ export class OpenId4VpVerifierService {
 
     const signatureSuiteRegistry = agentContext.resolve(SignatureSuiteRegistry)
     const kms = agentContext.resolve(Kms.KeyManagementApi)
-    const supportedAlgs = kms.supportedJwaSignatureAlgorithms() as [
+    const supportedAlgs = kms.supportedJwaSignatureAlgorithms({ operation: 'verify' }) as [
       Kms.KnownJwaSignatureAlgorithm,
       ...Kms.KnownJwaSignatureAlgorithm[],
     ]
@@ -1227,15 +1254,14 @@ export class OpenId4VpVerifierService {
         // `trustedIssuers` undefined and let `sdJwtVcApi.verify` surface the unsupported-issuer error.
         let trustedIssuers: TrustedIssuer[] | undefined
         if (issuer) {
+          const signer =
+            issuer.method === 'x5c'
+              ? ({ method: 'x509', certificateChain: parseX5c(agentContext, issuer.x5c) } as const)
+              : ({ method: 'did', didUrl: issuer.didUrl } as const)
+
           trustedIssuers = (
             await TrustedIssuerContext.getTrustedIssuersForVerification(agentContext, {
-              signer:
-                issuer.method === 'x5c'
-                  ? {
-                      method: 'x509',
-                      certificateChain: issuer.x5c,
-                    }
-                  : { method: 'did', didUrl: issuer.didUrl },
+              signer,
               verification: {
                 type: 'openId4VpCredential',
                 credential: sdJwtVc,
@@ -1245,10 +1271,10 @@ export class OpenId4VpVerifierService {
             })
           )?.trustedIssuers
 
-          if (!trustedIssuers && issuer.method === 'x5c') {
+          if (!trustedIssuers && signer.method === 'x509') {
             const legacyTrustedCertificates =
               (await x509Config.getTrustedCertificatesForVerification?.(agentContext, {
-                certificateChain: issuer.x5c,
+                certificateChain: signer.certificateChain,
                 verification: {
                   type: 'credential',
                   credential: sdJwtVc,
@@ -1263,7 +1289,7 @@ export class OpenId4VpVerifierService {
         }
 
         const verificationResult = await sdJwtVcApi.verify({
-          compactSdJwtVc: presentation,
+          sdJwtVc,
           keyBinding: {
             audience: options.audience,
             nonce: options.nonce,
@@ -1288,7 +1314,7 @@ export class OpenId4VpVerifierService {
           const mdoc = new Mdoc(documentResponse.deviceResponse.documents![0].issuerSigned)
 
           const certificateChain = mdoc.issuerSignedCertificateChain.map((cert) =>
-            X509Certificate.fromRawCertificate(cert)
+            X509Service.parseCertificate(agentContext, { encodedCertificate: cert })
           )
 
           const trustedCertificates =
