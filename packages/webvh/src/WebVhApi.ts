@@ -22,7 +22,6 @@ import {
   signWitnessProofEntry,
   type VerifyWitnessProofsOptions,
   verifyWitnessProofs,
-  type WitnessProofFileEntry,
   type WitnessRequirement,
   type WitnessSigningOptions,
   type WitnessVerificationResult,
@@ -39,7 +38,12 @@ import {
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
 } from './dids/WebVhDidController'
-import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './dids/webVhTypes'
+import {
+  WebVhDidRecordMetadataKeys,
+  type WebVhUpdateKeyKmsKeyIds,
+  type WebVhWitnessProofFile,
+  type WebVhWitnessProofFileEntry,
+} from './dids/webVhTypes'
 
 export type WebVhWitnessSigningOptions = Pick<
   WitnessSigningOptions,
@@ -134,7 +138,7 @@ export class WebVhApi {
    * @param witnessProofs Complete replacement witness-proof file.
    * @returns A promise resolving when the replacement is persisted.
    */
-  public async storeWitnessProofs(did: string, witnessProofs: WitnessProofFileEntry[]) {
+  public async storeWitnessProofs(did: string, witnessProofs: WebVhWitnessProofFile) {
     try {
       const record = await getWebVhDidRecord(this.agentContext, did)
       if (!Array.isArray(witnessProofs)) throw new CredoError('witnessProofs must be an array')
@@ -196,7 +200,7 @@ export class WebVhApi {
    * @param did WebVH DID whose published proofs should be fetched.
    * @returns Published proofs, or an empty array when upstream reports HTTP 404.
    */
-  public async fetchWitnessProofs(did: string): Promise<WitnessProofFileEntry[]> {
+  public async fetchWitnessProofs(did: string): Promise<WebVhWitnessProofFile> {
     try {
       return await fetchWitnessProofs(did, getWebVhFetch(this.agentContext))
     } catch (error) {
@@ -254,7 +258,7 @@ export class WebVhApi {
    * @param options Trusted and candidate logs, optional witness proofs, and the witness KMS key id.
    * @returns Signed witness-proof entry for caller-managed collection and publication.
    */
-  public async signWitnessProof(options: WebVhWitnessSigningOptions): Promise<WitnessProofFileEntry> {
+  public async signWitnessProof(options: WebVhWitnessSigningOptions): Promise<WebVhWitnessProofFileEntry> {
     try {
       const witnessSigner = await createWebVhWitnessSigner(this.agentContext, {
         keyId: options.kmsKeyId,

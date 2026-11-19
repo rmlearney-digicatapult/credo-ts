@@ -6,6 +6,8 @@ export {
   WebVhDidRegistrar,
   WebVhDidResolver,
   type WebVhDidUpdateOptions,
+  type WebVhWitnessProofFile,
+  type WebVhWitnessProofFileEntry,
 } from './dids'
 export {
   WebVhApi,

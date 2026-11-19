@@ -5,4 +5,4 @@ export {
   type WebVhDidUpdateOptions,
 } from './WebVhDidRegistrar'
 export { WebVhDidResolver } from './WebVhDidResolver'
-export type { WebVhDidLog, WebVhDidLogEntry } from './webVhTypes'
+export type { WebVhDidLog, WebVhDidLogEntry, WebVhWitnessProofFile, WebVhWitnessProofFileEntry } from './webVhTypes'

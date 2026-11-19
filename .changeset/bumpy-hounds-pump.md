@@ -13,6 +13,6 @@ Upgrade `didwebvh-ts` to 3.2.0 (requires Node.js >=22.12.0) and use its exported
 - Import the parallel did:web document that `didwebvh-ts` returns as a created DID with the KMS keys of the did:webvh document, so the agent can resolve and sign as the did:web. A write fails when another did:webvh at the same location provides that did:web, and a did:web record the application created there is replaced. A did:web record that no longer applies is kept for now.
 - Preserve encoding boundaries in non-unique domain tags and allow different SCIDs at the same publication location.
 - Fix resource URL conversion and replace `WebVhDidResolverOptions.maxResourceBytes` with agent `fetchLimits.maxResponseBytes`.
-- Keep DID log typing aligned with `didwebvh-ts` and limit public resource exports to the attested-resource models and guard; storage metadata and parsing helpers remain internal.
+- Keep DID log and witness proof file typing aligned with `didwebvh-ts` (`WebVhWitnessProofFile` and `WebVhWitnessProofFileEntry`), and limit public resource exports to the attested-resource models and guard; storage metadata and parsing helpers remain internal.
 
 Re-issue unsupported v0.5 and single-label-host DIDs. Disable pre-rotation with a full-document update before deactivation.
