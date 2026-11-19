@@ -539,8 +539,18 @@ describe('WebVhDidRegistrar integration', () => {
   test('reports empty authorized update keys only when upstream requests the proof ID', () => {
     const signer = createWebVhControllerSigner(agentContext, [], {})
     expect(() => signer.getVerificationMethodId()).toThrow(
-      'unknownError: no authorized controller update keys remain to sign this operation'
+      'no authorized controller update keys remain to sign this operation'
     )
+  })
+
+  test('reads each KMS key once when creating and not at all when an update keeps the keys', async () => {
+    const getPublicKey = vi.spyOn(Kms.KeyManagementApi.prototype, 'getPublicKey')
+    const { did, didDocument } = await create()
+    // One document key and one controller key.
+    expect(getPublicKey).toHaveBeenCalledTimes(2)
+    getPublicKey.mockClear()
+    expect((await registrar.update(agentContext, { did, didDocument })).didState.state).toBe('finished')
+    expect(getPublicKey).not.toHaveBeenCalled()
   })
 
   test('missing records and missing controller mappings remain distinct failures', async () => {

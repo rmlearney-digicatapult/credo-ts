@@ -5,7 +5,7 @@ import {
   DidDocument,
   type DidDocumentKey,
   DidDocumentRole,
-  type DidRecord,
+  DidRecord,
   DidRepository,
   DidResolverService,
   DidsApi,
@@ -35,26 +35,44 @@ export function getWebVhDomainTag(did: string) {
   return did.slice(`did:webvh:${scid}:`.length)
 }
 
+/**
+ * Carries the DID registration failure reason that `failedWebVhRegistration` reports before the message.
+ */
+export class WebVhRegistrationError extends CredoError {
+  public readonly reason: 'notFound' | 'notSupported'
+
+  public constructor(reason: 'notFound' | 'notSupported', message: string) {
+    super(message)
+    this.reason = reason
+  }
+}
+
+export function assertWebVhDidDocument(document: DidDocument) {
+  if (!(document instanceof DidDocument) || !document.id) {
+    throw new WebVhRegistrationError('notSupported', 'WebVH requires a complete DidDocument with an id')
+  }
+}
+
 export async function getWebVhDidRecord(agentContext: AgentContext, did: string) {
   const record = await agentContext.dependencyManager.resolve(DidRepository).findSingleByQuery(agentContext, {
     role: DidDocumentRole.Created,
     did,
     method: 'webvh',
   })
-  if (!record) throw new CredoError(`notFound: controlled WebVH DID '${did}' not found`)
+  if (!record) throw new WebVhRegistrationError('notFound', `controlled WebVH DID '${did}' not found`)
   return record
 }
 
 export function getWebVhDidLog(record: DidRecord) {
   const log = record.metadata.get<DIDLog>(WebVhDidRecordMetadataKeys.DidLog)
-  if (!log?.length) throw new CredoError(`unknownError: controlled DID '${record.did}' has no persisted log`)
+  if (!log?.length) throw new CredoError(`controlled DID '${record.did}' has no persisted log`)
   return log
 }
 
 export function getWebVhControllerMetadata(record: DidRecord): DIDResolutionMeta {
   const metadata = record.metadata.get<DIDResolutionMeta>(WebVhDidRecordMetadataKeys.ControllerMetadata)
   if (!metadata) {
-    throw new CredoError(`unknownError: controlled DID '${record.did}' has no persisted controller metadata`)
+    throw new CredoError(`controlled DID '${record.did}' has no persisted controller metadata`)
   }
   return metadata
 }
@@ -68,9 +86,7 @@ export async function prepareWebVhDocumentWrite(
     updateKeyKmsKeyIds?: WebVhUpdateKeyKmsKeyIds
   }
 ) {
-  if (!(didDocument instanceof DidDocument) || !didDocument.id) {
-    throw new CredoError('notSupported: WebVH requires a complete DidDocument with an id')
-  }
+  assertWebVhDidDocument(didDocument)
   const record = await getWebVhDidRecord(agentContext, did)
   const { keys, updateKeyKmsKeyIds, ...upstreamOptions } = input
   const state = getWebVhControllerMetadata(record)
@@ -87,48 +103,58 @@ export async function prepareWebVhDocumentWrite(
     state.prerotation ? input.updateKeys : state.updateKeys,
     controllerKeys
   )
+  const witnessProofs =
+    input.witnessProofs ??
+    record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
+    undefined
   const writerOptions: UpdateDIDOptions = {
     ...upstreamOptions,
     log: getWebVhDidLog(record),
     didDocument: { ...didDocument.toJSON(), id: didDocument.id },
-    witnessProofs:
-      input.witnessProofs ??
-      record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
-      undefined,
+    witnessProofs,
     signer,
     // didwebvh-ts only defaults the verifier when resolving, not when writing.
     verifier: defaultVerifier,
     fetch: agentContext.config.fetch.bind(agentContext.config),
   }
-  return { record, controllerKeys, keys: validatedKeys, writerOptions }
+  return { record, controllerKeys, keys: validatedKeys, witnessProofs, writerOptions }
 }
 
+export interface WebVhDocumentWrite {
+  /** Record to update. A new record is saved when omitted. */
+  record?: DidRecord
+  controllerKeys: WebVhUpdateKeyKmsKeyIds
+  /** Document keys already checked against the KMS. When omitted, mappings whose public key is unchanged are kept. */
+  keys?: DidDocumentKey[]
+  witnessProofs?: WitnessProofFileEntry[]
+}
+
+/**
+ * Stores the DID, document, log and metadata that didwebvh-ts returned, then imports its parallel did:web.
+ */
 export async function persistWebVhDocumentWrite(
   agentContext: AgentContext,
-  prepared: Awaited<ReturnType<typeof prepareWebVhDocumentWrite>>,
+  write: WebVhDocumentWrite,
   result: UpdateDIDResult
 ) {
-  const { record, controllerKeys, writerOptions } = prepared
-  await assertWebVhWebDocAvailable(agentContext, result.did, result.webDoc, record.id)
+  const { controllerKeys, witnessProofs } = write
+  await assertWebVhWebDocAvailable(agentContext, result.did, result.webDoc, write.record?.id)
+  const record = write.record ?? new DidRecord({ did: result.did, role: DidDocumentRole.Created })
   const previousWebDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc) ?? undefined
-  const domain = getWebVhDomainTag(result.did)
   const didDocument = DidDocument.fromJSON(result.doc)
-  const keys = await validateWebVhDocumentKeys(
-    agentContext,
-    didDocument,
-    prepared.keys ?? retainWebVhDocumentKeys(record.didDocument, didDocument, record.keys ?? [])
-  )
-  record.setTags({ domain })
+  const keys = write.keys ?? retainWebVhDocumentKeys(record.didDocument, didDocument, record.keys ?? [])
+  record.setTags({ domain: getWebVhDomainTag(result.did) })
   record.did = result.did
   record.didDocument = didDocument
   record.keys = keys
   record.metadata.set(WebVhDidRecordMetadataKeys.DidLog, result.log)
   record.metadata.set(WebVhDidRecordMetadataKeys.ControllerMetadata, result.meta)
   record.metadata.set(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds, controllerKeys)
-  if (writerOptions.witnessProofs)
-    record.metadata.set(WebVhDidRecordMetadataKeys.WitnessProofs, writerOptions.witnessProofs)
+  if (witnessProofs) record.metadata.set(WebVhDidRecordMetadataKeys.WitnessProofs, witnessProofs)
   setWebVhWebDoc(record, result.webDoc)
-  await agentContext.dependencyManager.resolve(DidRepository).update(agentContext, record)
+  const repository = agentContext.dependencyManager.resolve(DidRepository)
+  if (write.record) await repository.update(agentContext, record)
+  else await repository.save(agentContext, record)
   await importWebVhWebDoc(agentContext, result.did, previousWebDoc, result.webDoc, keys)
   return didDocument
 }
@@ -136,7 +162,7 @@ export async function persistWebVhDocumentWrite(
 /**
  * Stores the parallel did:web document from the latest write, or clears it when didwebvh-ts returned none.
  */
-export function setWebVhWebDoc(record: DidRecord, webDoc: DIDDocument | undefined) {
+function setWebVhWebDoc(record: DidRecord, webDoc: DIDDocument | undefined) {
   if (webDoc) record.metadata.set(WebVhDidRecordMetadataKeys.WebDoc, webDoc)
   else record.metadata.delete(WebVhDidRecordMetadataKeys.WebDoc)
 }
@@ -145,7 +171,7 @@ export function setWebVhWebDoc(record: DidRecord, webDoc: DIDDocument | undefine
  * Fails when another did:webvh at the same location already provides this parallel did:web, as only one `did.json`
  * can be published there.
  */
-export async function assertWebVhWebDocAvailable(
+async function assertWebVhWebDocAvailable(
   agentContext: AgentContext,
   did: string,
   webDoc: DIDDocument | undefined,
@@ -168,7 +194,7 @@ export async function assertWebVhWebDocAvailable(
  * Imports the parallel did:web document with the did:webvh document keys, so the agent can resolve and sign as the
  * did:web, and clears the resolver cache of the previous and new did:web.
  */
-export async function importWebVhWebDoc(
+async function importWebVhWebDoc(
   agentContext: AgentContext,
   did: string,
   previousWebDoc: DIDDocument | undefined,
@@ -197,12 +223,9 @@ export async function importWebVhWebDoc(
     await didResolverService.invalidateCacheForDid(agentContext, webDoc.id)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new CredoError(
-      `unknownError: '${did}' was stored, but updating its parallel did:web record failed: ${message}`,
-      {
-        cause: error,
-      }
-    )
+    throw new CredoError(`'${did}' was stored, but updating its parallel did:web record failed: ${message}`, {
+      cause: error,
+    })
   }
 }
 
@@ -214,15 +237,15 @@ export function failedWebVhRegistration(
   agentContext.config.logger.error(`WebVH ${operation} failed`, { error })
   const message = error instanceof Error ? error.message : String(error)
   const reason =
-    error instanceof Kms.KeyManagementKeyNotFoundError
-      ? `notFound: ${message}`
-      : /^(notFound|notSupported|unknownError):/.test(message)
-        ? message
-        : `unknownError: ${message}`
+    error instanceof WebVhRegistrationError
+      ? error.reason
+      : error instanceof Kms.KeyManagementKeyNotFoundError
+        ? 'notFound'
+        : 'unknownError'
   return {
     didDocumentMetadata: {},
     didRegistrationMetadata: {},
-    didState: { state: 'failed', reason },
+    didState: { state: 'failed', reason: `${reason}: ${message}` },
   }
 }
 
@@ -271,7 +294,7 @@ export function createWebVhControllerSigner(
   const getSigner = () => {
     if (signer) return signer
     if (!updateKeys?.length) {
-      throw new CredoError('unknownError: no authorized controller update keys remain to sign this operation')
+      throw new CredoError('no authorized controller update keys remain to sign this operation')
     }
     for (const updateKey of updateKeys) {
       // Upstream accepts did:key inputs but stores bare multikeys in authenticated metadata.
@@ -282,7 +305,7 @@ export function createWebVhControllerSigner(
         return signer
       }
     }
-    throw new CredoError('unknownError: no authorized controller update key has a Credo KMS mapping')
+    throw new CredoError('no authorized controller update key has a Credo KMS mapping')
   }
   return {
     getVerificationMethodId: () => getSigner().getVerificationMethodId(),
@@ -293,14 +316,9 @@ export function createWebVhControllerSigner(
 function tryDereferenceDocumentKey(document: DidDocument, relativeId: string): VerificationMethod | undefined {
   try {
     return document.dereferenceKey(relativeId)
-  } catch (error) {
-    if (
-      error instanceof CredoError &&
-      error.message.startsWith(`Unable to locate verification method with id '${relativeId}' in purposes `)
-    ) {
-      return undefined
-    }
-    throw error
+  } catch {
+    // dereferenceKey throws when the key is absent or references a missing method; either way it can't be used.
+    return undefined
   }
 }
 
@@ -328,7 +346,7 @@ export async function validateWebVhDocumentKeys(
   return resolvedKeys
 }
 
-export function retainWebVhDocumentKeys(
+function retainWebVhDocumentKeys(
   previousDocument: DidDocument | undefined,
   document: DidDocument,
   keys: DidDocumentKey[]

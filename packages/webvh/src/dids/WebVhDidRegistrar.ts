@@ -10,12 +10,11 @@ import type {
   DidUpdateResult,
 } from '@credo-ts/core'
 
-import { CredoError, DidDocument, DidDocumentRole, DidRecord, DidRepository } from '@credo-ts/core'
+import { CredoError, type DidDocument } from '@credo-ts/core'
 import {
   type CreateDIDOptions,
   createDID,
   type DeactivateDIDOptions,
-  type DIDDocument,
   deactivateDID,
   defaultVerifier,
   type UpdateDIDOptions,
@@ -24,19 +23,17 @@ import {
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 import {
-  assertWebVhWebDocAvailable,
+  assertWebVhDidDocument,
   createWebVhControllerSigner,
   failedWebVhRegistration,
   getWebVhControllerMetadata,
   getWebVhDidLog,
   getWebVhDidRecord,
-  getWebVhDomainTag,
-  importWebVhWebDoc,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
-  setWebVhWebDoc,
   validateWebVhControllerKeys,
   validateWebVhDocumentKeys,
+  WebVhRegistrationError,
 } from './WebVhDidController'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
@@ -74,39 +71,24 @@ export class WebVhDidRegistrar implements DidRegistrar {
    */
   public async create(agentContext: AgentContext, options: WebVhDidCreateOptions): Promise<DidCreateResult> {
     try {
-      this.assertCompleteDocument(options.didDocument)
+      assertWebVhDidDocument(options.didDocument)
       const { keys: inputKeys, updateKeyKmsKeyIds, ...upstreamOptions } = options.options
-      const { updateKeys } = upstreamOptions
       if (!Array.isArray(inputKeys) || !updateKeyKmsKeyIds) {
         throw new CredoError('Create options require keys and updateKeyKmsKeyIds')
       }
-      const repository = agentContext.dependencyManager.resolve(DidRepository)
       const keys = await validateWebVhDocumentKeys(agentContext, options.didDocument, inputKeys)
       const controllerKeys = await validateWebVhControllerKeys(agentContext, updateKeyKmsKeyIds)
-      const signer = createWebVhControllerSigner(agentContext, updateKeys, controllerKeys)
+      const signer = createWebVhControllerSigner(agentContext, upstreamOptions.updateKeys, controllerKeys)
       const result = await createDID({
         ...upstreamOptions,
         didDocument: { ...options.didDocument.toJSON(), id: options.didDocument.id },
         signer,
         verifier: defaultVerifier,
       })
-      await assertWebVhWebDocAvailable(agentContext, result.did, result.webDoc)
-      const didDocument = DidDocument.fromJSON(result.doc)
-      const validatedKeys = await validateWebVhDocumentKeys(agentContext, didDocument, keys)
-      const domain = getWebVhDomainTag(result.did)
-      const record = new DidRecord({
-        did: result.did,
-        didDocument,
-        role: DidDocumentRole.Created,
-        keys: validatedKeys,
-        tags: { domain },
-      })
-      this.persistResult(record, result, controllerKeys)
-      await repository.save(agentContext, record)
-      await importWebVhWebDoc(agentContext, result.did, undefined, result.webDoc, validatedKeys)
+      const didDocument = await persistWebVhDocumentWrite(agentContext, { controllerKeys, keys }, result)
       return this.finished(result, didDocument)
     } catch (error) {
-      return this.failed(agentContext, 'create', error)
+      return failedWebVhRegistration(agentContext, 'create', error)
     }
   }
 
@@ -119,9 +101,11 @@ export class WebVhDidRegistrar implements DidRegistrar {
    */
   public async update(agentContext: AgentContext, options: WebVhDidUpdateOptions): Promise<DidUpdateResult> {
     try {
-      this.assertCompleteDocument(options.didDocument)
       if (options.didDocumentOperation && options.didDocumentOperation !== 'setDidDocument') {
-        throw new CredoError('notSupported: WebVH update requires setDidDocument with a complete DID document')
+        throw new WebVhRegistrationError(
+          'notSupported',
+          'WebVH update requires setDidDocument with a complete DID document'
+        )
       }
       const prepared = await prepareWebVhDocumentWrite(
         agentContext,
@@ -133,7 +117,7 @@ export class WebVhDidRegistrar implements DidRegistrar {
       const didDocument = await persistWebVhDocumentWrite(agentContext, prepared, result)
       return this.finished(result, didDocument)
     } catch (error) {
-      return this.failed(agentContext, 'update', error)
+      return failedWebVhRegistration(agentContext, 'update', error)
     }
   }
 
@@ -154,43 +138,27 @@ export class WebVhDidRegistrar implements DidRegistrar {
       const controllerKeys =
         record.metadata.get<WebVhUpdateKeyKmsKeyIds>(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds) ?? {}
       const signer = createWebVhControllerSigner(agentContext, state.updateKeys, controllerKeys)
+      const witnessProofs =
+        options.options?.witnessProofs ??
+        record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
+        undefined
       const result = await deactivateDID({
         log: getWebVhDidLog(record),
         updateKeys: options.options?.updateKeys,
-        witnessProofs:
-          options.options?.witnessProofs ??
-          record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
-          undefined,
+        witnessProofs,
         signer,
         verifier: defaultVerifier,
         fetch: agentContext.config.fetch.bind(agentContext.config),
       })
-      const didDocument = DidDocument.fromJSON(result.doc)
-      const previousWebDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc) ?? undefined
-      this.persistResult(record, result, controllerKeys)
-      if (options.options?.witnessProofs)
-        record.metadata.set(WebVhDidRecordMetadataKeys.WitnessProofs, options.options.witnessProofs)
-      await agentContext.dependencyManager.resolve(DidRepository).update(agentContext, record)
-      await importWebVhWebDoc(agentContext, result.did, previousWebDoc, undefined, record.keys ?? [])
+      const didDocument = await persistWebVhDocumentWrite(
+        agentContext,
+        { record, controllerKeys, witnessProofs },
+        result
+      )
       return this.finished(result, didDocument)
     } catch (error) {
-      return this.failed(agentContext, 'deactivate', error)
+      return failedWebVhRegistration(agentContext, 'deactivate', error)
     }
-  }
-
-  private assertCompleteDocument(document: DidDocument) {
-    if (!(document instanceof DidDocument) || !document.id) {
-      throw new CredoError('notSupported: WebVH requires a complete DidDocument with an id')
-    }
-  }
-
-  private persistResult(record: DidRecord, result: UpdateDIDResult, controllerKeys: WebVhUpdateKeyKmsKeyIds) {
-    record.did = result.did
-    record.didDocument = DidDocument.fromJSON(result.doc)
-    record.metadata.set(WebVhDidRecordMetadataKeys.DidLog, result.log)
-    record.metadata.set(WebVhDidRecordMetadataKeys.ControllerMetadata, result.meta)
-    record.metadata.set(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds, controllerKeys)
-    setWebVhWebDoc(record, result.webDoc)
   }
 
   private finished(result: UpdateDIDResult, didDocument: DidDocument): DidCreateResult {
@@ -199,9 +167,5 @@ export class WebVhDidRegistrar implements DidRegistrar {
       didRegistrationMetadata: {},
       didState: { state: 'finished', did: result.did, didDocument },
     }
-  }
-
-  private failed(agentContext: AgentContext, operation: string, error: unknown): DidCreateResult {
-    return failedWebVhRegistration(agentContext, operation, error)
   }
 }
