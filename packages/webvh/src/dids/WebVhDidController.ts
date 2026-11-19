@@ -19,14 +19,16 @@ import {
   type DIDLog,
   type DIDResolutionMeta,
   defaultVerifier,
+  MultibaseEncoding,
+  multibaseEncode,
   parseDidWebvh,
+  prepareDataForSigning,
   type Signer,
   type UpdateDIDOptions,
   type UpdateDIDResult,
   type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 
-import { WebVhDidCryptoSigner } from './WebVhDidCryptoSigner'
 import { WebVhDidRecordMetadataKeys, type WebVhUpdateKeyKmsKeyIds } from './webVhTypes'
 
 export function getWebVhDomainTag(did: string) {
@@ -265,12 +267,35 @@ export async function getWebVhKmsPublicJwk(
   return { publicJwk: Kms.PublicJwk.fromPublicJwk(key), kmsBackend: backend }
 }
 
-export async function createWebVhKmsSigner(agentContext: AgentContext, keyReference: Kms.KmsKeyReference) {
+/**
+ * Signs did:webvh proofs with an Ed25519 key in the agent's KMS, identified by its `did:key` verification method.
+ */
+function createWebVhKmsSigner(agentContext: AgentContext, multikey: string, keyReference: Kms.KmsKeyReference): Signer {
+  return {
+    getVerificationMethodId: () => `did:key:${multikey}#${multikey}`,
+    sign: async ({ document, proof }) => {
+      const { signature } = await agentContext.dependencyManager.resolve(Kms.KeyManagementApi).sign({
+        keyId: keyReference.keyId,
+        backend: keyReference.kmsBackend,
+        // The KMS refuses to sign when the key no longer matches the multikey in the proof.
+        expectedPublicJwk: Kms.PublicJwk.fromFingerprint(multikey).toJson(),
+        algorithm: 'EdDSA',
+        data: await prepareDataForSigning(document, proof),
+      })
+      return { proofValue: multibaseEncode(signature, MultibaseEncoding.BASE58_BTC) }
+    },
+  }
+}
+
+/**
+ * Creates a signer for witness proofs with the KMS key the application names, as a witness has no record of the DID.
+ */
+export async function createWebVhWitnessSigner(agentContext: AgentContext, keyReference: Kms.KmsKeyReference) {
   const { publicJwk, kmsBackend } = await getWebVhKmsPublicJwk(agentContext, keyReference)
   if (!publicJwk.is(Kms.Ed25519PublicJwk)) {
     throw new CredoError(`KMS key '${keyReference.keyId}' must be Ed25519 to sign a WebVH proof`)
   }
-  return new WebVhDidCryptoSigner(agentContext, publicJwk.fingerprint, keyReference.keyId, kmsBackend)
+  return createWebVhKmsSigner(agentContext, publicJwk.fingerprint, { keyId: keyReference.keyId, kmsBackend })
 }
 
 export async function validateWebVhControllerKeys(
@@ -294,7 +319,7 @@ export function createWebVhControllerSigner(
   updateKeys: string[] | undefined,
   mappings: WebVhUpdateKeyKmsKeyIds
 ): Signer {
-  let signer: WebVhDidCryptoSigner | undefined
+  let signer: Signer | undefined
   // Upstream validates the operation before requesting the proof ID; KMS access happens in sign().
   const getSigner = () => {
     if (signer) return signer
@@ -306,7 +331,7 @@ export function createWebVhControllerSigner(
       const multikey = updateKey.startsWith('did:key:') ? parseDid(updateKey).id : updateKey
       const keyReference = mappings[multikey]
       if (keyReference) {
-        signer = new WebVhDidCryptoSigner(agentContext, multikey, keyReference.keyId, keyReference.kmsBackend)
+        signer = createWebVhKmsSigner(agentContext, multikey, keyReference)
         return signer
       }
     }

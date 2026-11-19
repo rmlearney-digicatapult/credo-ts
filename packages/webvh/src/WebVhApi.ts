@@ -26,7 +26,7 @@ import {
 
 import { getWebVhDidResolver } from './dids/getWebVhDidResolver'
 import {
-  createWebVhKmsSigner,
+  createWebVhWitnessSigner,
   failedWebVhRegistration,
   getWebVhDidLog,
   getWebVhDidRecord,
@@ -205,7 +205,7 @@ export class WebVhApi {
    */
   public async signWitnessProof(options: WebVhWitnessSigningOptions): Promise<WitnessProofFileEntry> {
     try {
-      const witnessSigner = await createWebVhKmsSigner(this.agentContext, {
+      const witnessSigner = await createWebVhWitnessSigner(this.agentContext, {
         keyId: options.kmsKeyId,
         kmsBackend: options.kmsBackend,
       })
