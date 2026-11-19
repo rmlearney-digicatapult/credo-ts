@@ -7,11 +7,14 @@ import {
   DidResolverService,
   type DidUpdateResult,
   injectable,
+  type Kms,
 } from '@credo-ts/core'
 import {
   type DIDDocument,
   type DIDLog,
+  deriveNextKeyHash,
   fetchWitnessProofs,
+  getWitnessRequirements,
   type MigrateDIDOptions,
   migrateDID,
   type ResolutionOptions,
@@ -20,6 +23,7 @@ import {
   type VerifyWitnessProofsOptions,
   verifyWitnessProofs,
   type WitnessProofFileEntry,
+  type WitnessRequirement,
   type WitnessSigningOptions,
   type WitnessVerificationResult,
 } from 'didwebvh-ts'
@@ -142,6 +146,37 @@ export class WebVhApi {
   }
 
   /**
+   * Lists the governing witnesses and threshold for each log entry that needs witnessing, without verifying signatures.
+   *
+   * @param log DID log to inspect, such as a candidate log returned by a write.
+   * @returns One requirement per entry that needs witnessing.
+   */
+  public getWitnessRequirements(log: DIDLog): WitnessRequirement[] {
+    try {
+      return getWitnessRequirements(log)
+    } catch (error) {
+      throw new CredoError('Unable to derive WebVH witness requirements', { cause: error })
+    }
+  }
+
+  /**
+   * Returns the witnesses that must approve the latest entry of the stored log, and how many of them must.
+   *
+   * @param did Controlled WebVH DID.
+   * @returns The requirement for the latest entry, or undefined when it needs no approvals.
+   */
+  public async getWitnessRequirement(did: string): Promise<WitnessRequirement | undefined> {
+    try {
+      const log = getWebVhDidLog(await getWebVhDidRecord(this.agentContext, did))
+      // Requirements follow the order of the log, so only the last one can be for the latest entry.
+      const requirement = getWitnessRequirements(log).at(-1)
+      return requirement?.versionId === log[log.length - 1].versionId ? requirement : undefined
+    } catch (error) {
+      throw new CredoError(`Unable to derive the WebVH witness requirement for '${did}'`, { cause: error })
+    }
+  }
+
+  /**
    * Verifies supplied proofs locally without fetching, storing, or publishing them.
    *
    * @param options DID log and complete witness-proof file.
@@ -166,6 +201,20 @@ export class WebVhApi {
       return await fetchWitnessProofs(did, getWebVhFetch(this.agentContext))
     } catch (error) {
       throw new CredoError(`Unable to fetch WebVH witness proofs for '${did}'`, { cause: error })
+    }
+  }
+
+  /**
+   * Derives the pre-rotation hash of a future update key, to list in `nextKeyHashes`.
+   *
+   * @param publicJwk Ed25519 key that may sign the DID log after the next rotation, such as one from `PublicJwk.fromKmsKey`.
+   * @returns The hash that commits the DID to the key.
+   */
+  public async deriveNextKeyHash(publicJwk: Kms.PublicJwk): Promise<string> {
+    try {
+      return await deriveNextKeyHash(publicJwk.fingerprint)
+    } catch (error) {
+      throw new CredoError('Unable to derive the WebVH next key hash', { cause: error })
     }
   }
 

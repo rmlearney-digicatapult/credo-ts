@@ -15,10 +15,9 @@ import {
   type DIDLog,
   type DIDResolutionMeta,
   defaultVerifier,
-  deriveNextKeyHash,
-  getWitnessRequirements,
   parseDidWebvh,
   resolveDIDFromLog,
+  type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 import { Subject } from 'rxjs'
 
@@ -317,7 +316,9 @@ describe('WebVhDidRegistrar integration', () => {
   test('clears pre-rotation with the committed replacement key before separate deactivation', async () => {
     const options = await createWebVhTestOptions(agentContext)
     const next = await createWebVhTestKey(agentContext)
-    options.options.nextKeyHashes = [await deriveNextKeyHash(next.multikey)]
+    options.options.nextKeyHashes = [
+      await new WebVhApi(agentContext).deriveNextKeyHash(Kms.PublicJwk.fromFingerprint(next.multikey)),
+    ]
     const { did, didDocument } = await create(options)
     const kms = agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
     const sign = vi.spyOn(kms, 'sign')
@@ -395,7 +396,7 @@ describe('WebVhDidRegistrar integration', () => {
     expect(await repository.getAll(agentContext)).toHaveLength(0)
   })
 
-  test('bridges a witnessed create and update with application-collected proofs, without witness requests', async () => {
+  test('bridges a witnessed create, update and deactivation with application-collected proofs, without witness requests', async () => {
     const fetch = vi.spyOn(agentContext.config, 'fetch')
     const witness = await createWebVhTestKey(agentContext)
     const options = await createWebVhTestOptions(agentContext)
@@ -422,7 +423,7 @@ describe('WebVhDidRegistrar integration', () => {
       kmsBackend: witness.kmsBackend,
     })
     await api.storeWitnessProofs(did, [genesisProof, updateProof])
-    expect(getWitnessRequirements(candidate.log).map((requirement) => requirement.threshold)).toEqual([1, 1])
+    expect(api.getWitnessRequirements(candidate.log).map((requirement) => requirement.threshold)).toEqual([1, 1])
     expect(await api.verifyWitnessProofs({ log: candidate.log, witnessProofs: [genesisProof] })).toMatchObject({
       verified: false,
       requirements: [{ satisfied: true }, { satisfied: false }],
@@ -440,8 +441,52 @@ describe('WebVhDidRegistrar integration', () => {
     const resolved = await api.resolveDIDFromLog(candidate.log, { witnessProofs: [genesisProof, updateProof] })
     expect(resolved.didResolutionMetadata.error).toBeUndefined()
     expect(resolved.didDocumentMetadata.witness.threshold).toBe('1')
+    expect((await registrar.deactivate(agentContext, { did })).didState.state).toBe('finished')
+    const deactivation = await api.getPublicationData(did)
+    const deactivationProof = await api.signWitnessProof({
+      trustedLog: candidate.log,
+      candidateLog: deactivation.log,
+      witnessProofs: [genesisProof, updateProof],
+      kmsKeyId: witness.keyId,
+      kmsBackend: witness.kmsBackend,
+    })
+    expect(
+      await api.verifyWitnessProofs({
+        log: deactivation.log,
+        witnessProofs: [genesisProof, updateProof, deactivationProof],
+      })
+    ).toMatchObject({ verified: true })
     expect(fetch).not.toHaveBeenCalled()
     fetch.mockRestore()
+  })
+
+  test('reports the witness requirement of the latest entry only while it needs approvals', async () => {
+    const witness = await createWebVhTestKey(agentContext)
+    const options = await createWebVhTestOptions(agentContext)
+    options.options.witness = { threshold: 1, witnesses: [{ id: `did:key:${witness.multikey}` }] }
+    const { did, didDocument } = await create(options)
+    const api = new WebVhApi(agentContext)
+    const approve = async (trustedLog: DIDLog, witnessProofs: WitnessProofFileEntry[]) =>
+      api.signWitnessProof({
+        trustedLog,
+        candidateLog: (await api.getPublicationData(did)).log,
+        witnessProofs,
+        kmsKeyId: witness.keyId,
+        kmsBackend: witness.kmsBackend,
+      })
+
+    const genesis = await api.getPublicationData(did)
+    expect(await api.getWitnessRequirement(did)).toMatchObject({ versionId: genesis.log[0].versionId, threshold: 1 })
+    const genesisProof = await approve([], [])
+    await api.storeWitnessProofs(did, [genesisProof])
+
+    await registrar.update(agentContext, { did, didDocument, options: { witness: {} } })
+    const disableProof = await approve(genesis.log, [genesisProof])
+    await api.storeWitnessProofs(did, [genesisProof, disableProof])
+
+    // Earlier entries keep their requirements, but the latest one needs none.
+    expect((await registrar.update(agentContext, { did, didDocument })).didState.state).toBe('finished')
+    expect(await api.getWitnessRequirement(did)).toBeUndefined()
   })
 
   test('persists returned DID and document when moving a portable DID', async () => {

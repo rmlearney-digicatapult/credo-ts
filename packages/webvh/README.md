@@ -188,19 +188,26 @@ Credo also imports each returned `webDoc` with `agent.dids.import`, using the KM
 
 `storeWitnessProofs` replaces the entire stored proof file; it does not append or merge. Include proofs for earlier log entries that remain required. Passing `[]` clears the file. It does not change the DID log or claim that witness requirements are satisfied. The application handles witness discovery, requests, response collection, verification where needed, and publication.
 
-Inspect requirements and verify collected proofs before storing or publishing. Import context-free utilities directly from didwebvh-ts:
+Inspect requirements and verify collected proofs before storing or publishing:
 
 ```typescript
-import { deriveNextKeyHash, getWitnessRequirements } from 'didwebvh-ts'
-
-const requirements = getWitnessRequirements(log)
+// The witnesses that must approve the latest stored entry, or undefined when it needs no approvals
+const requirement = await agent.modules.webvh.getWitnessRequirement(did)
+// The requirements of every entry of any log
+const requirements = agent.modules.webvh.getWitnessRequirements(log)
 const verification = await agent.modules.webvh.verifyWitnessProofs({ log, witnessProofs: collectedWitnessProofs })
 // Inspect verification.verified, requirements, and rejectedProofs.
 const publishedProofs = await agent.modules.webvh.fetchWitnessProofs(publicDid)
-const nextKeyHash = await deriveNextKeyHash(replacementControllerMultikey)
 ```
 
 Requirement inspection does not verify signatures. Proof verification is local, returns per-entry approval and rejection details, and does not fetch or persist proofs. Fetching published proofs uses Credo's configured fetch and limits, returns `[]` for HTTP 404, and does not contact witness agents.
+
+For pre-rotation, list the hash of each future update key in `nextKeyHashes`. `deriveNextKeyHash` takes the public key, such as one from `PublicJwk.fromKmsKey`, and doesn't access the KMS:
+
+```typescript
+const nextUpdateKey = Kms.PublicJwk.fromKmsKey(await agent.kms.createKey({ type: { kty: 'OKP', crv: 'Ed25519' } }))
+const nextKeyHash = await agent.modules.webvh.deriveNextKeyHash(nextUpdateKey)
+```
 
 For an existing portable percent-encoded U-label DID, use `agent.modules.webvh.migrate({ did, didDocument, options: { address: existingULabelAddress } })` to append the upstream A-label migration entry. This specialized operation lives on the WebVH API, not the DID registrar; `agent.dids.update` performs ordinary updates only. Supply a complete replacement document and, when needed, KMS mapping and pre-rotation options. The adapter authenticates controller keys and persists the returned DID, document, log, metadata, and mappings. Inspect `didState` for failure; witnessing and publication remain caller-managed. Ordinary create, update, deactivate, and resolution remain available through Credo's DID API.
 

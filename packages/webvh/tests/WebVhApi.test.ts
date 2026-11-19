@@ -115,6 +115,25 @@ describe('WebVhApi controller/witness bridges', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  test('derives witness requirements and wraps upstream failures with the original cause', async () => {
+    const created = await new WebVhDidRegistrar().create(context, await createWebVhTestOptions(context))
+    if (created.didState.state !== 'finished') throw new Error('Fixture create failed')
+    const { log } = await api.getPublicationData(created.didState.did)
+    expect(api.getWitnessRequirements(log)).toEqual([])
+    expect(() => api.getWitnessRequirements([])).toThrow(
+      expect.objectContaining({ name: 'CredoError', cause: expect.any(Error) })
+    )
+  })
+
+  test('wraps upstream failures to derive a next key hash with the original cause', async () => {
+    const kms = context.dependencyManager.resolve(Kms.KeyManagementApi)
+    const p256Key = Kms.PublicJwk.fromKmsKey(await kms.createKey({ type: { kty: 'EC', crv: 'P-256' } }))
+    await expect(api.deriveNextKeyHash(p256Key)).rejects.toMatchObject({
+      name: 'CredoError',
+      cause: expect.any(Error),
+    })
+  })
+
   test('fetches published proofs through configured fetch without persisting them', async () => {
     const proofs: WitnessProofFileEntry[] = [{ versionId: '1-example', proof: [] }]
     const fetch = vi
