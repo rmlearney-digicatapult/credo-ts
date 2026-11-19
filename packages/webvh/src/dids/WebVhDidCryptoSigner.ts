@@ -16,7 +16,6 @@ export class WebVhDidCryptoSigner implements Signer {
   private keyId: string
   private kmsBackend?: string
   private agentContext: AgentContext
-  public readonly supportedMethods: string[] = ['webvh']
 
   /**
    * Constructs a new instance of WebVhDidCryptoSigner.
@@ -45,24 +44,19 @@ export class WebVhDidCryptoSigner implements Signer {
    * @throws Error if the secret key is not found or signing fails.
    */
   async sign(input: SigningInput): Promise<SigningOutput> {
-    try {
-      const kms = this.agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
-      const data = await prepareDataForSigning(input.document, input.proof)
+    const kms = this.agentContext.dependencyManager.resolve(Kms.KeyManagementApi)
+    const data = await prepareDataForSigning(input.document, input.proof)
 
-      const { signature } = await kms.sign({
-        keyId: this.keyId,
-        backend: this.kmsBackend,
-        // The multibase public key is the did:key fingerprint of the key
-        expectedPublicJwk: Kms.PublicJwk.fromFingerprint(this.publicKeyMultibase).toJson(),
-        algorithm: 'EdDSA',
-        data,
-      })
-      return {
-        proofValue: multibaseEncode(signature, MultibaseEncoding.BASE58_BTC),
-      }
-    } catch (error) {
-      this.agentContext.config.logger.error('Ed25519 signing error:', error)
-      throw error
+    const { signature } = await kms.sign({
+      keyId: this.keyId,
+      backend: this.kmsBackend,
+      // The multibase public key is the did:key fingerprint of the key
+      expectedPublicJwk: Kms.PublicJwk.fromFingerprint(this.publicKeyMultibase).toJson(),
+      algorithm: 'EdDSA',
+      data,
+    })
+    return {
+      proofValue: multibaseEncode(signature, MultibaseEncoding.BASE58_BTC),
     }
   }
 }

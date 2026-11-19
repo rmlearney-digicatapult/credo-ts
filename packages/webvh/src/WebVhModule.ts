@@ -6,10 +6,10 @@ export class WebVhModule implements ApiModule {
   public readonly api = WebVhApi
 
   /**
-   * Registers the dependencies of the WebVH module on the dependency manager.
+   * Adds a WebVH resolver and registrar to the DidsModule when none is configured. The dependency manager registers
+   * the API from `api`.
    *
    * @param dependencyManager Agent dependency manager with the DID module configuration.
-   * @returns Nothing; adds missing WebVH adapters and registers the API.
    */
   public register(dependencyManager: DependencyManager) {
     // Preserve an explicitly configured WebVH resolver.
@@ -20,7 +20,5 @@ export class WebVhModule implements ApiModule {
     if (!didsModuleConfig.registrars.some((registrar) => registrar.supportedMethods.includes('webvh'))) {
       didsModuleConfig.addRegistrar(new WebVhDidRegistrar())
     }
-
-    dependencyManager.registerSingleton(WebVhDidRegistrar)
   }
 }
