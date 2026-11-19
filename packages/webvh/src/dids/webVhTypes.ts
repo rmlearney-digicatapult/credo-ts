@@ -13,5 +13,5 @@ export enum WebVhDidRecordMetadataKeys {
   UpdateKeyKmsKeyIds = '_internal/webvhUpdateKeyKmsKeyIds',
   ControllerMetadata = '_internal/webvhControllerMetadata',
   WitnessProofs = '_internal/webvhWitnessProofs',
-  WebDoc = '_internal/webvhWebDoc',
+  ParallelDidWebDocument = '_internal/webvhParallelDidWebDocument',
 }

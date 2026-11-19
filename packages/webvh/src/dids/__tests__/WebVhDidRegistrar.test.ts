@@ -457,9 +457,9 @@ describe('WebVhDidRegistrar integration', () => {
   })
 
   describe('parallel did:web', () => {
-    const webDid = 'did:web:id.test-suite.app'
+    const parallelDidWeb = 'did:web:id.test-suite.app'
 
-    async function withWebAlias(address?: string) {
+    async function withParallelDidWeb(address?: string) {
       const options = await createWebVhTestOptions(agentContext, address)
       options.options.alsoKnownAsWeb = true
       return options
@@ -467,39 +467,39 @@ describe('WebVhDidRegistrar integration', () => {
 
     test('imports it with the did:webvh keys so the agent can sign as the did:web', async () => {
       const invalidateCacheForDid = vi.spyOn(DidResolverService.prototype, 'invalidateCacheForDid')
-      const options = await withWebAlias()
+      const options = await withParallelDidWeb()
       const { did, didDocument } = await create(options)
       const dids = agentContext.resolve(DidsApi)
-      const { publicJwk } = await dids.resolveVerificationMethodFromCreatedDidRecord(`${webDid}#assertion-key`)
+      const { publicJwk } = await dids.resolveVerificationMethodFromCreatedDidRecord(`${parallelDidWeb}#assertion-key`)
       expect(publicJwk.keyId).toBe(options.options.keys[0].kmsKeyId)
-      expect(invalidateCacheForDid).toHaveBeenCalledWith(agentContext, webDid)
+      expect(invalidateCacheForDid).toHaveBeenCalledWith(agentContext, parallelDidWeb)
 
       didDocument.alsoKnownAs = [...(didDocument.alsoKnownAs ?? []), 'did:example:other']
       expect((await registrar.update(agentContext, { did, didDocument })).didState.state).toBe('finished')
-      expect((await dids.resolveCreatedDidDocumentWithKeys(webDid)).didDocument.alsoKnownAs).toContain(
+      expect((await dids.resolveCreatedDidDocumentWithKeys(parallelDidWeb)).didDocument.alsoKnownAs).toContain(
         'did:example:other'
       )
     })
 
     test('fails without storing when another did:webvh at the location provides it', async () => {
-      await create(await withWebAlias())
-      const result = await registrar.create(agentContext, await withWebAlias())
+      await create(await withParallelDidWeb())
+      const result = await registrar.create(agentContext, await withParallelDidWeb())
       expect(result.didState).toMatchObject({
         state: 'failed',
-        reason: expect.stringContaining(`The parallel did:web '${webDid}' already belongs to did:webvh`),
+        reason: expect.stringContaining(`The parallel did:web '${parallelDidWeb}' already belongs to did:webvh`),
       })
       expect(await repository.findByQuery(agentContext, { method: 'webvh' })).toHaveLength(1)
     })
 
     test('takes over a did:web record the application created at the location', async () => {
       const dids = agentContext.resolve(DidsApi)
-      await dids.import({ did: webDid, didDocument: new DidDocument({ id: webDid }) })
-      const { did } = await create(await withWebAlias())
-      expect((await dids.resolveCreatedDidDocumentWithKeys(webDid)).didDocument.alsoKnownAs).toContain(did)
+      await dids.import({ did: parallelDidWeb, didDocument: new DidDocument({ id: parallelDidWeb }) })
+      const { did } = await create(await withParallelDidWeb())
+      expect((await dids.resolveCreatedDidDocumentWithKeys(parallelDidWeb)).didDocument.alsoKnownAs).toContain(did)
     })
 
     test('imports the did:web of the new location when a portable DID moves', async () => {
-      const options = await withWebAlias()
+      const options = await withParallelDidWeb()
       options.options.portable = true
       const { did, didDocument } = await create(options)
       const moved = await registrar.update(agentContext, {

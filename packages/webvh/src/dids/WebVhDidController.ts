@@ -138,92 +138,97 @@ export async function persistWebVhDocumentWrite(
   result: UpdateDIDResult
 ) {
   const { controllerKeys, witnessProofs } = write
-  await assertWebVhWebDocAvailable(agentContext, result.did, result.webDoc, write.record?.id)
+  await assertParallelDidWebAvailable(agentContext, result.did, result.webDoc, write.record?.id)
   const record = write.record ?? new DidRecord({ did: result.did, role: DidDocumentRole.Created })
-  const previousWebDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc) ?? undefined
-  const didDocument = DidDocument.fromJSON(result.doc)
-  const keys = write.keys ?? retainWebVhDocumentKeys(record.didDocument, didDocument, record.keys ?? [])
+  const previousParallelDidWebDocument =
+    record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.ParallelDidWebDocument) ?? undefined
+  const webVhDidDocument = DidDocument.fromJSON(result.doc)
+  const keys = write.keys ?? retainWebVhDocumentKeys(record.didDocument, webVhDidDocument, record.keys ?? [])
   record.setTags({ domain: getWebVhDomainTag(result.did) })
   record.did = result.did
-  record.didDocument = didDocument
+  record.didDocument = webVhDidDocument
   record.keys = keys
   record.metadata.set(WebVhDidRecordMetadataKeys.DidLog, result.log)
   record.metadata.set(WebVhDidRecordMetadataKeys.ControllerMetadata, result.meta)
   record.metadata.set(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds, controllerKeys)
   if (witnessProofs) record.metadata.set(WebVhDidRecordMetadataKeys.WitnessProofs, witnessProofs)
-  setWebVhWebDoc(record, result.webDoc)
+  setParallelDidWebDocument(record, result.webDoc)
   const repository = agentContext.dependencyManager.resolve(DidRepository)
   if (write.record) await repository.update(agentContext, record)
   else await repository.save(agentContext, record)
-  await importWebVhWebDoc(agentContext, result.did, previousWebDoc, result.webDoc, keys)
-  return didDocument
+  await syncParallelDidWebRecord(agentContext, result.did, previousParallelDidWebDocument, result.webDoc, keys)
+  return webVhDidDocument
 }
 
 /**
  * Stores the parallel did:web document from the latest write, or clears it when didwebvh-ts returned none.
  */
-function setWebVhWebDoc(record: DidRecord, webDoc: DIDDocument | undefined) {
-  if (webDoc) record.metadata.set(WebVhDidRecordMetadataKeys.WebDoc, webDoc)
-  else record.metadata.delete(WebVhDidRecordMetadataKeys.WebDoc)
+function setParallelDidWebDocument(record: DidRecord, document: DIDDocument | undefined) {
+  if (document) record.metadata.set(WebVhDidRecordMetadataKeys.ParallelDidWebDocument, document)
+  else record.metadata.delete(WebVhDidRecordMetadataKeys.ParallelDidWebDocument)
 }
 
 /**
  * Fails when another did:webvh at the same location already provides this parallel did:web, as only one `did.json`
  * can be published there.
  */
-async function assertWebVhWebDocAvailable(
+async function assertParallelDidWebAvailable(
   agentContext: AgentContext,
-  did: string,
-  webDoc: DIDDocument | undefined,
-  recordId?: string
+  webVhDid: string,
+  parallelDidWebDocument: DIDDocument | undefined,
+  webVhRecordId?: string
 ) {
-  if (!webDoc) return
-  const records = await agentContext.dependencyManager.resolve(DidRepository).findByQuery(agentContext, {
-    role: DidDocumentRole.Created,
-    method: 'webvh',
-    domain: getWebVhDomainTag(did),
-  })
-  const owner = records.find(
+  if (!parallelDidWebDocument) return
+  const webVhRecordsAtLocation = await agentContext.dependencyManager
+    .resolve(DidRepository)
+    .findByQuery(agentContext, { role: DidDocumentRole.Created, method: 'webvh', domain: getWebVhDomainTag(webVhDid) })
+  const owningWebVhRecord = webVhRecordsAtLocation.find(
     (record) =>
-      record.id !== recordId && record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc)?.id === webDoc.id
+      record.id !== webVhRecordId &&
+      record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.ParallelDidWebDocument)?.id ===
+        parallelDidWebDocument.id
   )
-  if (owner) throw new CredoError(`The parallel did:web '${webDoc.id}' already belongs to did:webvh '${owner.did}'`)
+  if (owningWebVhRecord) {
+    throw new CredoError(
+      `The parallel did:web '${parallelDidWebDocument.id}' already belongs to did:webvh '${owningWebVhRecord.did}'`
+    )
+  }
 }
 
 /**
  * Imports the parallel did:web document with the did:webvh document keys, so the agent can resolve and sign as the
  * did:web, and clears the resolver cache of the previous and new did:web.
  */
-async function importWebVhWebDoc(
+async function syncParallelDidWebRecord(
   agentContext: AgentContext,
-  did: string,
-  previousWebDoc: DIDDocument | undefined,
-  webDoc: DIDDocument | undefined,
+  webVhDid: string,
+  previousDocument: DIDDocument | undefined,
+  document: DIDDocument | undefined,
   keys: DidDocumentKey[]
 ) {
-  if (!previousWebDoc && !webDoc) return
+  if (!previousDocument && !document) return
   try {
     const didResolverService = agentContext.dependencyManager.resolve(DidResolverService)
-    if (previousWebDoc && previousWebDoc.id !== webDoc?.id) {
+    if (previousDocument && previousDocument.id !== document?.id) {
       // TODO: delete the previous did:web record, but not its keys, which the did:webvh still uses, once
       // DidsApi.deleteCreatedDid exists (https://github.com/openwallet-foundation/credo-ts/pull/3289).
       agentContext.config.logger.warn(
-        `The did:web record '${previousWebDoc.id}' is no longer the parallel did:web of '${did}' and is kept until it can be deleted`
+        `The did:web record '${previousDocument.id}' is no longer the parallel did:web of '${webVhDid}' and is kept until it can be deleted`
       )
-      await didResolverService.invalidateCacheForDid(agentContext, previousWebDoc.id)
+      await didResolverService.invalidateCacheForDid(agentContext, previousDocument.id)
     }
-    if (!webDoc) return
+    if (!document) return
     const dids = agentContext.dependencyManager.resolve(DidsApi)
-    if (previousWebDoc?.id !== webDoc.id && (await dids.getCreatedDids({ did: webDoc.id })).length > 0) {
+    if (previousDocument?.id !== document.id && (await dids.getCreatedDids({ did: document.id })).length > 0) {
       agentContext.config.logger.warn(
-        `Replacing the did:web record '${webDoc.id}' with the parallel did:web of '${did}'`
+        `Replacing the did:web record '${document.id}' with the parallel did:web of '${webVhDid}'`
       )
     }
-    await dids.import({ did: webDoc.id, didDocument: DidDocument.fromJSON(webDoc), keys, overwrite: true })
-    await didResolverService.invalidateCacheForDid(agentContext, webDoc.id)
+    await dids.import({ did: document.id, didDocument: DidDocument.fromJSON(document), keys, overwrite: true })
+    await didResolverService.invalidateCacheForDid(agentContext, document.id)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    throw new CredoError(`'${did}' was stored, but updating its parallel did:web record failed: ${message}`, {
+    throw new CredoError(`'${webVhDid}' was stored, but updating its parallel did:web record failed: ${message}`, {
       cause: error,
     })
   }

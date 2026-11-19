@@ -85,7 +85,7 @@ export class WebVhApi {
   public async getPublicationData(did: string) {
     try {
       const record = await getWebVhDidRecord(this.agentContext, did)
-      const webDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.WebDoc)
+      const webDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.ParallelDidWebDocument)
       return structuredClone({
         log: getWebVhDidLog(record),
         witnessProofs: record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ?? [],
