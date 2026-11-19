@@ -28,8 +28,10 @@ import { getWebVhDidResolver } from './dids/getWebVhDidResolver'
 import {
   createWebVhWitnessSigner,
   failedWebVhRegistration,
+  getStoredWitnessProofs,
   getWebVhDidLog,
   getWebVhDidRecord,
+  getWebVhFetch,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
 } from './dids/WebVhDidController'
@@ -88,7 +90,7 @@ export class WebVhApi {
       const webDoc = record.metadata.get<DIDDocument>(WebVhDidRecordMetadataKeys.ParallelDidWebDocument)
       return structuredClone({
         log: getWebVhDidLog(record),
-        witnessProofs: record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ?? [],
+        witnessProofs: getStoredWitnessProofs(record) ?? [],
         ...(webDoc && { webDoc }),
       })
     } catch (error) {
@@ -108,7 +110,7 @@ export class WebVhApi {
     try {
       const result = await resolveDIDFromLog(log, {
         ...options,
-        fetch: this.agentContext.config.fetch.bind(this.agentContext.config),
+        fetch: getWebVhFetch(this.agentContext),
       })
       return {
         didDocument: result.didDocument ? DidDocument.fromJSON(result.didDocument) : null,
@@ -161,7 +163,7 @@ export class WebVhApi {
    */
   public async fetchWitnessProofs(did: string): Promise<WitnessProofFileEntry[]> {
     try {
-      return await fetchWitnessProofs(did, this.agentContext.config.fetch.bind(this.agentContext.config))
+      return await fetchWitnessProofs(did, getWebVhFetch(this.agentContext))
     } catch (error) {
       throw new CredoError(`Unable to fetch WebVH witness proofs for '${did}'`, { cause: error })
     }

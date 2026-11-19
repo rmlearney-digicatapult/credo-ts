@@ -20,15 +20,16 @@ import {
   type UpdateDIDOptions,
   type UpdateDIDResult,
   updateDID,
-  type WitnessProofFileEntry,
 } from 'didwebvh-ts'
 import {
   assertWebVhDidDocument,
   createWebVhControllerSigner,
   failedWebVhRegistration,
+  getStoredWitnessProofs,
   getWebVhControllerMetadata,
   getWebVhDidLog,
   getWebVhDidRecord,
+  getWebVhFetch,
   persistWebVhDocumentWrite,
   prepareWebVhDocumentWrite,
   validateWebVhControllerKeys,
@@ -138,17 +139,14 @@ export class WebVhDidRegistrar implements DidRegistrar {
       const controllerKeys =
         record.metadata.get<WebVhUpdateKeyKmsKeyIds>(WebVhDidRecordMetadataKeys.UpdateKeyKmsKeyIds) ?? {}
       const signer = createWebVhControllerSigner(agentContext, state.updateKeys, controllerKeys)
-      const witnessProofs =
-        options.options?.witnessProofs ??
-        record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
-        undefined
+      const witnessProofs = options.options?.witnessProofs ?? getStoredWitnessProofs(record)
       const result = await deactivateDID({
         log: getWebVhDidLog(record),
         updateKeys: options.options?.updateKeys,
         witnessProofs,
         signer,
         verifier: defaultVerifier,
-        fetch: agentContext.config.fetch.bind(agentContext.config),
+        fetch: getWebVhFetch(agentContext),
       })
       const didDocument = await persistWebVhDocumentWrite(
         agentContext,

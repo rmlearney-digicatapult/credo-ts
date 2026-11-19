@@ -55,6 +55,20 @@ export function assertWebVhDidDocument(document: DidDocument) {
   }
 }
 
+/**
+ * The agent's fetch, with its limits, for didwebvh-ts to fetch DID logs and witness proofs.
+ */
+export function getWebVhFetch(agentContext: AgentContext) {
+  return agentContext.config.fetch.bind(agentContext.config)
+}
+
+/**
+ * The stored witness proofs, or undefined so that didwebvh-ts fetches the published proof file instead.
+ */
+export function getStoredWitnessProofs(record: DidRecord) {
+  return record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ?? undefined
+}
+
 export async function getWebVhDidRecord(agentContext: AgentContext, did: string) {
   const record = await agentContext.dependencyManager.resolve(DidRepository).findSingleByQuery(agentContext, {
     role: DidDocumentRole.Created,
@@ -105,10 +119,7 @@ export async function prepareWebVhDocumentWrite(
     state.prerotation ? input.updateKeys : state.updateKeys,
     controllerKeys
   )
-  const witnessProofs =
-    input.witnessProofs ??
-    record.metadata.get<WitnessProofFileEntry[]>(WebVhDidRecordMetadataKeys.WitnessProofs) ??
-    undefined
+  const witnessProofs = input.witnessProofs ?? getStoredWitnessProofs(record)
   const writerOptions: UpdateDIDOptions = {
     ...upstreamOptions,
     log: getWebVhDidLog(record),
@@ -117,7 +128,7 @@ export async function prepareWebVhDocumentWrite(
     signer,
     // didwebvh-ts only defaults the verifier when resolving, not when writing.
     verifier: defaultVerifier,
-    fetch: agentContext.config.fetch.bind(agentContext.config),
+    fetch: getWebVhFetch(agentContext),
   }
   return { record, controllerKeys, keys: validatedKeys, witnessProofs, writerOptions }
 }
